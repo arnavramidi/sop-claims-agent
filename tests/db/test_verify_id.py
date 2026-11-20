@@ -327,7 +327,7 @@ async def test_the_turn_record_is_the_inspector_payload_with_masked_values(deps,
     r = await say(deps, conv, "my id is 123454472", make_form(**GAVE), stated(id_digits="123454472"))
     assert set(r.inspector) == {"state_before", "state_after", "freedom", "filler", "form", "stated", "flags", "fired",
                                 "parts", "reply_source", "checks", "memory", "counts", "claims_visible", "outbox",
-                                "handover_note", "events"}
+                                "handover_note", "events", "prepared"}
     assert set(r.inspector["counts"]) == {"stalled", "wrong_values", "consent_checks"}
     record = await turn_record(deps, r.turn_id)
     assert record == json.loads(json.dumps(r.inspector))
