@@ -3,8 +3,12 @@ from dataclasses import dataclass, field
 from typing import Literal
 
 from claims_agent.form.fields import Form, ListedClaim, Pick, YesNo
+from claims_agent.loader.read import MONEY_FIELDS
 from claims_agent.form.read import PickAnswer, Refused, YesNoAnswer
 from claims_agent.states import State
+
+# What a caller can ask code to work out (Ruling 22). Kept here so the form needs nothing from the answers package.
+CALCULATIONS = ("none", "total", "difference", "highest", "lowest", "count", "days_open", "days_left")
 
 RECENT_WINDOW = 6  # how many earlier caller messages a request carries (and asks a question about)
 
@@ -138,6 +142,12 @@ def build_questions(req: FormRequest) -> list[Question]:
                               ("all", "all of them"),
                               ("not_listed", "a document that is not in this list"),
                               ("none_stated", "no document named")]))
+    if req.verified:
+        qs.append(c("calculation", "Does the caller ask for a total, a difference, the highest or lowest, a count or a "
+                    "number of days to be worked out?", list(CALCULATIONS)))
+        qs += [_yn(f"figure:{m}", f"Is the caller asking about the {m.replace('_', ' ')} figure?") for m in MONEY_FIELDS]
+        qs.append(_yn("no_figure_said", "Does the caller ask for a total, difference, highest or lowest without "
+                      "saying which money figure?"))
     qs += [
         _yn("cant_get_document", "Does the caller say they cannot get a required document?"),
         _yn("asks_personal_detail", "Does the caller ask the agent to tell them a personal detail?"),
@@ -202,4 +212,6 @@ def form_from_answers(req: FormRequest, answers: Mapping[str, YesNoAnswer | Pick
         need=pick("need"), answer_wanted=pick("answer_wanted"), multi_question=yn("multi_question"),
         which_document=unasked_pick("which_document"), cant_get_document=yn("cant_get_document"),
         asks_personal_detail=yn("asks_personal_detail"), email_offer_reply=opt_pick("email_offer_reply"),
+        calculation=unasked_pick("calculation"), figures={m: unasked_yn(f"figure:{m}") for m in MONEY_FIELDS},
+        no_figure_said=unasked_yn("no_figure_said"),
     )

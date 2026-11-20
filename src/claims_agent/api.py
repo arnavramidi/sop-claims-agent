@@ -28,6 +28,7 @@ from claims_agent.db.guidance import load_guidance
 from claims_agent.db.pool import AppDb
 from claims_agent.engine import Deps, TurnFailed, run_turn
 from claims_agent.form.decisions_filler import DecisionsFiller
+from claims_agent.form.switching import build_switching_filler
 from claims_agent.form.extractor import TextExtractor
 from claims_agent.inspect import mask_all
 from claims_agent.models.client import make_client
@@ -125,7 +126,7 @@ def model_clients(s: Settings) -> tuple[Any, Any, Any]:
         return stand_in, stand_in, stand_in
     client = make_client()
     kw = {"retries": s.limits.model_retries, "timeout": s.limits.model_timeout_seconds}
-    return (DecisionsFiller(client, s.models.fast, **kw), TextExtractor(client, s.models.text, **kw),
+    return (build_switching_filler(s, client), TextExtractor(client, s.models.text, **kw),
             ModelWording(client, s.models.text, s.models.larger, **kw))
 
 

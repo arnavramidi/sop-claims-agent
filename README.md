@@ -40,7 +40,10 @@ that panel.
    The agent acknowledges the frustration, explains that claim details are protected,
    says which details it can accept, and discloses nothing.
 
-3. Out of scope: "what is reinforcement learning?" is declined politely. Ask for a
+3. Totals and comparisons, once verified: "how much was I paid in total across my claims?" The database does the
+   sum over the caller's own claims and the reply states only that figure; no model does arithmetic.
+
+4. Out of scope: "what is reinforcement learning?" is declined politely. Ask for a
    person at any point and the agent offers a hand-over.
 
 ## How a turn works
@@ -122,7 +125,8 @@ another customer's claims.
 
 ## Known limits
 
-- OpenAI only. The form filler needs a key with access to the Decisions API.
+- OpenAI only. The form is filled with the Decisions API; if a key is refused access to it, the agent switches on its
+  own to a second filler built on Structured Outputs. `/api/meta` and the operator panel show which one is active.
 - The operator panel shows what matched during verification. It is a debugging view for
   this demo and would not be exposed to callers.
 - A third party who knows three of a policyholder's details and does not say they are

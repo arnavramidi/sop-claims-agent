@@ -85,3 +85,12 @@ async def escalated_conv(deps):
     cid = await new_conversation(deps)
     assert (await say(deps, cid, "I want to talk to a person", make_form(wants_person=True))).state == State.ESCALATED
     return cid
+
+
+@pytest.fixture
+async def deps_with_switch(load_dataset):
+    """Engine dependencies whose filler is a SwitchingFiller over two scripted fillers (decisions, then structured)."""
+    from helpers import SwitchingTestFiller
+    from claims_agent.form.filler import ScriptedFiller
+    filler = SwitchingTestFiller(ScriptedFiller(name="decisions"), ScriptedFiller(name="structured"))
+    return make_deps(await load_dataset("starter"), filler=filler)

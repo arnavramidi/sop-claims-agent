@@ -35,6 +35,7 @@ INSTRUCTIONS: dict[str, str] = {
     "ask_need": "Ask what the caller would like help with. If the facts name possible needs, ask which of those the caller means.",
     "ask_which_answer": "Ask which of the answers the caller wants to hear, listing the options given.",
     "ask_which_document": "Ask which of the requested documents in the facts the caller cannot get, listing them by name.",
+    "ask_which_figure": "Ask which of the money figures in the facts the caller means, naming each in the words the facts use.",
     "answer": "Answer the caller's question using the facts given. " + _USE_ONLY,
     "not_on_file": "Say that information is not on file for this claim. Do not guess.",
     "offer_followup": "Offer the follow-up topic given in the facts, in one sentence.",

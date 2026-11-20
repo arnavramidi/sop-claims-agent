@@ -22,7 +22,7 @@ from uuid import UUID
 
 from psycopg import AsyncConnection
 
-from claims_agent.answers.facts import ANSWERS, available
+from claims_agent.answers.facts import ANSWERS, COMPARE_CLAIMS, available
 from claims_agent.db import conversations as store
 from claims_agent.db.claims import (Claim, as_listed, customer_vocabulary, fetch_ids, filter_from_form,
                                     filter_to_dict)
@@ -64,7 +64,7 @@ KEPT_FROM_MODEL = {"rule": "freedom", "kept_from_model": "claim_facts"}
 
 # The answer kinds a caller can ask for by name, offered to the form beside the data's follow-up topics: the answers
 # module's own list, less "not_on_file" (an outcome, never something asked for).
-ANSWER_KINDS = tuple(a for a in ANSWERS if a != "not_on_file")
+ANSWER_KINDS = tuple(a for a in ANSWERS if a not in ("not_on_file", COMPARE_CLAIMS))
 
 # Fixed wording for parts that carry none of their own (the every-message rules build parts without text).
 # Ruling: plain text is built only from facts and fixed wording, and holds no number or date.
@@ -490,7 +490,7 @@ async def _form_request(turn: _Turn, verified: bool) -> FormRequest:
         if in_focus:
             g = await guidance(turn.deps, conn)
             names = tuple(dict.fromkeys(a for c in in_focus for a in available(c, g, len(in_focus), s)
-                                        if a in names))
+                                        if a in names or a == COMPARE_CLAIMS))
             documents = offered_documents(in_focus, s)
     else:
         types, statuses = await _vocabulary(conn, "case_type"), await _vocabulary(conn, "status")

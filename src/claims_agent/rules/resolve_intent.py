@@ -17,6 +17,7 @@ from claims_agent.db.claims import (Claim, ClaimFilter, count, fetch, fetch_ids,
                                     filter_to_dict, find_numbered, merge, most_even_split, overview, relax,
                                     with_need)
 from claims_agent.db.identity import account_info
+from claims_agent.rules import calculate
 from claims_agent.engine import PLAIN, STEPS, StepOutcome, TurnContext
 from claims_agent.form.read import picked, top_two, yes
 from claims_agent.memory import FocusMemory, Memory, Pending
@@ -323,6 +324,14 @@ async def step(ctx: TurnContext) -> StepOutcome:
         listed = picked(form.listed_claim, t)
         if not (ctx.stated.claim_number or "").strip() and listed in (None, "none") and not new.conditions():
             return r.stay()
+
+    # A total, highest, lowest or count over claims in general needs no single claim: it runs over the current
+    # filter (or every claim) and the state stays.
+    stored = filter_from_dict(focus.claim_filter) if focus.claim_filter is not None else \
+        filter_from_dict(ctx.memory.hints.claim_filter) if _first_pass(focus) else None
+    done = await calculate.over_filter(ctx, how_many, None if stored is None else _described_part(stored))
+    if done is not None:
+        return done
 
     claims = await _which(r, total, need, how_many)
     if claims is None:

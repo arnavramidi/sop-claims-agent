@@ -74,3 +74,7 @@ class Form(BaseModel):
     cant_get_document: YesNo
     asks_personal_detail: YesNo
     email_offer_reply: Pick | None = None
+    # Stage 2 (Ruling 22): asked only after verification; the defaults mean "nothing asked".
+    calculation: Pick = Field(default_factory=Pick)
+    figures: dict[str, YesNo] = Field(default_factory=dict)
+    no_figure_said: YesNo = Field(default_factory=lambda: YesNo(p=0.0))

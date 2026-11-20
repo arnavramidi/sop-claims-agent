@@ -9,12 +9,14 @@ from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field, replace
 from datetime import date, datetime
 from decimal import Decimal
+from typing import Literal
 
 from psycopg import AsyncConnection
 
 from claims_agent.form.fields import Form, ListedClaim
 from claims_agent.form.read import picked, yes
 from claims_agent.identity.normalize import claim_number_key
+from claims_agent.loader.read import MONEY_FIELDS
 from claims_agent.settings import Thresholds
 
 # How many most-recent claims and upcoming deadlines a fixed-size overview names (the plan's limit of five listed).
@@ -329,3 +331,54 @@ async def customer_vocabulary(conn: AsyncConnection) -> tuple[tuple[str, ...], t
     statuses = tuple(sorted({s for _, s, _ in rows if s}))
     years = tuple(sorted({y for _, _, y in rows if y is not None}))
     return types, statuses, years
+
+
+# ---- arithmetic: the database adds up, code only reads the result ----------------------------------------------------
+
+TOP_SIZE = 5
+
+
+@dataclass(frozen=True)
+class Aggregate:
+    total: Decimal                                   # the sum of the figures that are on file
+    count: int                                       # the claims covered, with or without a figure
+    missing: tuple[str, ...]                         # case ids of the claims with no figure on file
+    top: tuple[tuple[str, Decimal], ...]             # at most five (case_id, value), best first
+    not_paid_yet: tuple[str, ...] = ()               # case ids of in-progress claims whose figure is 0.00
+
+
+# `scoped` is `chosen`, narrowed to the named claims when ids are given.
+_SCOPE = """, scoped AS (SELECT * FROM chosen WHERE %(ids)s::text[] IS NULL OR case_id = ANY(%(ids)s::text[]))
+"""
+
+
+def _aggregate_sql(column: str, direction: str) -> str:
+    """The one statement for one money column and one sort direction. Built only at import time, from the fixed
+    names in MONEY_FIELDS and the two fixed directions below, never from a value."""
+    return _CHOSEN + _SCOPE + f"""SELECT count(*), coalesce(sum({column}), 0)::text,
+      coalesce(array_agg(case_id ORDER BY case_id) FILTER (WHERE {column} IS NULL), '{{}}'),
+      coalesce(array_agg(case_id ORDER BY case_id)
+               FILTER (WHERE {column} = 0 AND status = ANY(%(in_progress)s::text[])), '{{}}'),
+      (SELECT coalesce(json_agg(json_build_array(case_id, v::text) ORDER BY k), '[]') FROM
+         (SELECT case_id, {column} AS v, row_number() OVER (ORDER BY {column} {direction}, case_id) AS k
+          FROM scoped WHERE {column} IS NOT NULL ORDER BY {column} {direction}, case_id LIMIT %(top)s) t)
+    FROM scoped"""
+
+
+_AGGREGATES = {(name, order): _aggregate_sql(name, direction)
+               for name in MONEY_FIELDS for order, direction in (("highest", "DESC"), ("lowest", "ASC"))}
+
+
+async def aggregate(conn: AsyncConnection, f: ClaimFilter, today: date, field: str, *,
+                    order: Literal["highest", "lowest"] = "highest", in_progress: Sequence[str] = (),
+                    case_ids: Sequence[str] | None = None) -> Aggregate:
+    """The sum, count, missing figures and best five of one money column over the chosen claims (or, with `case_ids`,
+    over those of them that are named). Runs as the server's account, so only the caller's own claims are counted.
+    `field` must be a money field of the glossary; anything else raises before any SQL is sent."""
+    sql = _AGGREGATES.get((field, order))
+    if sql is None:
+        raise ValueError(f"not a money field: {field!r}")
+    cur = await conn.execute(sql, _params(f, today, top=TOP_SIZE, in_progress=list(in_progress),
+                                          ids=None if case_ids is None else list(case_ids)))
+    n, total, missing, unpaid, top = await cur.fetchone()
+    return Aggregate(Decimal(total), n, tuple(missing), tuple((c, Decimal(v)) for c, v in top), tuple(unpaid))

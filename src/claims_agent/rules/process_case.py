@@ -19,15 +19,16 @@ from collections.abc import Sequence
 from datetime import date
 
 from claims_agent.answers.documents import norm
-from claims_agent.answers.facts import AnswerResult, available, build, opening
+from claims_agent.answers.facts import COMPARE_CLAIMS, AnswerResult, available, build, opening
 from claims_agent.answers.followups import exists_for, fill, next_followup
-from claims_agent.db.claims import Claim, fetch_ids
+from claims_agent.db.claims import Claim, ClaimFilter, fetch_ids
 from claims_agent.db.guidance import Guidance
 from claims_agent.engine import ANSWER_KINDS, STEPS, StepOutcome, TurnContext, guidance, offered_documents
 from claims_agent.form.read import confident_yes, picked, yes
 from claims_agent.loader.read import FollowupRow
 from claims_agent.memory import Pending, RequestMemory
 from claims_agent.reply.brief import Fact, ReplyPart
+from claims_agent.rules import calculate
 from claims_agent.rules.every_message import PERSON_OFFER
 from claims_agent.rules.resolve_intent import GENERAL as GENERAL_NEED, destination_fact, sentences
 from claims_agent.settings import Settings
@@ -69,6 +70,9 @@ def _results(answer: str, claims: Sequence[Claim], g: Guidance, s: Settings, tod
     """One result per claim: a claim-record answer is built from the row; a follow-up is filled only where it
     exists for that claim (the offer check), anything else is not on file for it."""
     followup = next((f for f in g.followups if f.topic == answer), None)
+    if answer == COMPARE_CLAIMS and len(claims) >= 2:  # one result over all the claims, given with the first
+        whole = build(answer, claims, g, s, today)
+        return [(c, whole if i == 0 else AnswerResult(())) for i, c in enumerate(claims)]
     out = []
     for c in claims:
         if answer in ANSWER_KINDS:
@@ -202,6 +206,26 @@ class _Case:
             return StepOutcome(State.POST_PROCESS, parts, grounded=grounded, fired=self.fired)
         parts.append(self.offer_next() if offer else ReplyPart("anything_else", pending=ANYTHING_ELSE))
         return self.stay(parts, grounded)
+
+    # ---- a total, a difference, a ranking, a count or a day count ---------------------------------------------------
+
+    async def calculate(self) -> StepOutcome | None:
+        """A confident calculation is worked out by code over the claims in focus, before any answer pick is acted on
+        (a message about another claim goes back to choosing it first)."""
+        asked = calculate.wanted(self.ctx)
+        if asked is None:
+            return None
+        form, t = self.form, self.t
+        if (yes(form.mentions_claim, t) or yes(form.quoted_claim_number, t)) \
+                and picked(form.search_relation, t) in SWITCHING:
+            return None
+        calc, figures = asked
+        made, grounded = await calculate.parts(self.ctx, calc, figures, ClaimFilter(), self.claims,
+                                               [c.case_id for c in self.claims])
+        self.fired.append({"rule": "calculation", "calculation": calc, "figures": figures})
+        if made and made[0].instruction == "ask_which_figure":
+            return self.stay(made)
+        return self.finish(made, grounded)
 
     # ---- entry -------------------------------------------------------------------------------------------------
 
@@ -382,8 +406,8 @@ async def step(ctx: TurnContext) -> StepOutcome:
     case = _Case(ctx, claims, await guidance(ctx.deps, ctx.conn))
 
     if ctx.entered_by_hop:
-        return case.entry()
-    return case.offer_answered() or case.cant_get() or case.asked()
+        return await case.calculate() or case.entry()
+    return case.offer_answered() or case.cant_get() or await case.calculate() or case.asked()
 
 
 STEPS[State.PROCESS_CASE] = step

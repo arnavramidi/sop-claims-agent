@@ -19,7 +19,9 @@ from claims_agent.loader.read import MONEY_FIELDS, FollowupRow
 from claims_agent.reply.brief import Fact
 from claims_agent.settings import Settings
 
-ANSWERS = ("status", "denial_reason", "documents_needed", "appeal_deadline", "amounts", "next_steps", "not_on_file")
+COMPARE_CLAIMS = "compare_claims"
+ANSWERS = ("status", "denial_reason", "documents_needed", "appeal_deadline", "amounts", "next_steps", "not_on_file",
+           COMPARE_CLAIMS)
 
 
 @dataclass(frozen=True)
@@ -122,7 +124,7 @@ def _answer_exists(answer: str, claim: Claim) -> bool:
 def available(claim: Claim, g: Guidance, focus_size: int, s: Settings) -> list[str]:
     """Claim-record answers that exist for the claim, then the topics of follow-ups that exist for it.
     `focus_size` is the number of claims in focus; Stage 2 uses it to add a comparison across claims."""
-    return [a for a in ANSWERS if _answer_exists(a, claim)] + [f.topic for f in g.followups if exists_for(f, claim, g, s)]
+    return [a for a in ANSWERS if _answer_exists(a, claim) and (a != COMPARE_CLAIMS or focus_size >= 2)] + [f.topic for f in g.followups if exists_for(f, claim, g, s)]
 
 
 def opening(need: str, claim: Claim, s: Settings) -> list[str]:
@@ -219,10 +221,56 @@ def _one(answer: str, claim: Claim, g: Guidance, s: Settings, today: date) -> tu
     raise ValueError(f"unknown answer: {answer}")
 
 
+def figure_words(name: str) -> str:
+    return name.replace("_", " ")
+
+
+# Said whenever an expected figure is totalled: it is what the claims are expected to pay, never a promise (A8).
+EXPECTED_NOTE = "This is an expected figure, not a guaranteed payment."
+
+
+def _shown(claim: Claim, name: str, s: Settings) -> tuple[str, Decimal | None]:
+    """How a claim's figure is stated, and its value when it is a real figure (None: unavailable or not paid yet)."""
+    value: Decimal | None = getattr(claim, name)
+    if value is None:
+        return "unavailable", None
+    if name == "net_pay" and value == 0 and claim.status in s.claims.in_progress_statuses:
+        return "not paid yet", None
+    return f"{value:.2f}", value
+
+
+def compare_facts(claims: Sequence[Claim], g: Guidance, s: Settings) -> list[Fact]:
+    """The four figures of each claim, each figure's total across the claims, and for two claims the difference per
+    figure. Every number a reply could state is a fact. It says nothing about how the claims relate."""
+    facts: list[Fact] = []
+    for c in claims:
+        for name in MONEY_FIELDS:
+            facts.append(Fact("amount", f"Claim {c.case_id} {figure_words(name)}: {_shown(c, name, s)[0]}.", c.case_id))
+    ids = " and ".join(c.case_id for c in claims)
+    for name in MONEY_FIELDS:
+        have = [getattr(c, name) for c in claims if getattr(c, name) is not None]
+        if not have:
+            continue
+        note = f" {EXPECTED_NOTE}" if name == "expected_reimbursement_amount" else ""
+        facts.append(Fact("total", f"Total {figure_words(name)} across {len(have)} of the {len(claims)} claims "
+                                   f"({ids}): {sum(have, Decimal(0)):.2f}.{note}"))
+    if len(claims) == 2:
+        a, b = claims
+        for name in MONEY_FIELDS:
+            (_, va), (_, vb) = _shown(a, name, s), _shown(b, name, s)
+            if va is not None and vb is not None:
+                facts.append(Fact("difference", f"Difference in {figure_words(name)} between claim {a.case_id} and "
+                                                f"claim {b.case_id}: {abs(va - vb):.2f}."))
+    return facts
+
+
 def build(answer: str, claims: Sequence[Claim], g: Guidance, s: Settings, today: date, *,
           document: str | None = None) -> AnswerResult:
     """The facts for one claim-record answer over every claim given, each fact naming its claim.
-    `document` is for the follow-up answers; the claim-record answers ignore it."""
+    `document` is for the follow-up answers; the claim-record answers ignore it. `compare_claims` is built once over
+    all the claims given."""
+    if answer == COMPARE_CLAIMS:
+        return AnswerResult(tuple(compare_facts(claims, g, s)), grounded=len(claims) >= 2)
     facts: list[Fact] = []
     offer = False
     for claim in claims:

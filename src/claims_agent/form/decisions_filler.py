@@ -6,7 +6,7 @@ in the user turn as one JSON data record."""
 
 import json
 
-from claims_agent.form.fields import Form
+from claims_agent.form.fields import Form, Pick
 from claims_agent.form.questions import RECENT_WINDOW, FormRequest, Question, build_questions, form_from_answers
 from claims_agent.form.read import PickAnswer, Refused, YesNoAnswer
 from claims_agent.models.call import BadResponse, with_retry
@@ -75,6 +75,30 @@ class DecisionsFiller:
 
     async def fill(self, req: FormRequest) -> Form:
         questions = build_questions(req)
+        plain = await self._ask(req, questions)
+        # from here on nothing is caught: a bug in our own mapping propagates as itself
+        read: dict[str, YesNoAnswer | PickAnswer | Refused] = {}
+        for name, kind, value in plain:
+            read[name] = Refused() if name in read else _answer(kind, value)  # a repeated name reads as refused
+        # matched by name: a reordered, short or padded list never shifts a value onto another question
+        return form_from_answers(req, {q.name: read.get(q.name, Refused()) for q in questions})
+
+    async def fill_one(self, req: FormRequest, question: Question) -> Pick:
+        """One extra question about the same message and context. A choice gives that value with its confidence;
+        a yes/no gives "yes" or "no" with the probability of that side; a refusal gives no value."""
+        plain = await self._ask(req, [question])
+        for name, kind, value in plain:
+            if name != question.name:
+                continue
+            if kind == "choice":
+                choice, confidence, probs = value
+                if choice in {v for v, _ in question.choices}:
+                    return Pick(value=choice, p=confidence, options=probs)
+            elif kind == "predicate":
+                return Pick(value="yes" if value >= 0.5 else "no", p=max(value, 1 - value))
+        return Pick(value=None)
+
+    async def _ask(self, req: FormRequest, questions: list[Question]) -> list[tuple]:
         developer = DEVELOPER.format(state=req.state.value if hasattr(req.state, "value") else req.state)
         record = {
             "caller_message": req.message,
@@ -90,10 +114,4 @@ class DecisionsFiller:
                 questions=[_question(q) for q in questions])
             return _plain(decision)
 
-        plain = await with_retry(call, retries=self._retries, timeout=self._timeout, model=self._model)
-        # from here on nothing is caught: a bug in our own mapping propagates as itself
-        read: dict[str, YesNoAnswer | PickAnswer | Refused] = {}
-        for name, kind, value in plain:
-            read[name] = Refused() if name in read else _answer(kind, value)  # a repeated name reads as refused
-        # matched by name: a reordered, short or padded list never shifts a value onto another question
-        return form_from_answers(req, {q.name: read.get(q.name, Refused()) for q in questions})
+        return await with_retry(call, retries=self._retries, timeout=self._timeout, model=self._model)

@@ -5,6 +5,7 @@ from pathlib import Path
 from claims_agent.db import conversations as store
 from claims_agent.form.fields import Form, Pick, StatedValues, YesNo
 from claims_agent.form.filler import ScriptedExtractor, ScriptedFiller
+from claims_agent.form.switching import SwitchingFiller
 from claims_agent.loader.read import read_folder
 from claims_agent.memory import Memory, Pending
 from claims_agent.reply.brief import Fact, ReplyPart
@@ -42,14 +43,16 @@ def make_form(**overrides) -> Form:
     values["shaped_need"] = [YesNo(p=0.0) for _ in range(6)]
     for n in _OPTIONAL_YES_NO + _OPTIONAL_PICK:
         values[n] = None
-    for n in ("claim_types", "claim_statuses", "months", "years"):
+    for n in ("claim_types", "claim_statuses", "months", "years", "figures"):
         values[n] = {}
+    values["no_figure_said"] = YesNo(p=0.0)
+    values["calculation"] = _pick("none")
     for key, v in overrides.items():
-        if key in ("claim_types", "claim_statuses", "months", "years"):
+        if key in ("claim_types", "claim_statuses", "months", "years", "figures"):
             values[key] = {k: _yn(x) for k, x in v.items()}
         elif key == "shaped_need":
             values[key] = [_yn(x) for x in v]
-        elif key in _PICK_DEFAULT or key in _OPTIONAL_PICK:
+        elif key in _PICK_DEFAULT or key in _OPTIONAL_PICK or key == "calculation":
             values[key] = None if v is None else _pick(v)
         else:
             values[key] = None if v is None else _yn(v)
@@ -255,3 +258,15 @@ def assert_no_claim_data(text: str, folder: Path = STARTER) -> None:
     for d in data.documents:
         assert d.name.lower() not in low, f"document name in text: {d.name!r}"
 
+
+
+class SwitchingTestFiller(SwitchingFiller):
+    """A switching filler whose two scripted fillers are both fed by `say` (one form per turn each)."""
+
+    def queue(self, item) -> None:
+        self.primary.queue(item)
+        self.fallback.queue(item)
+
+    def discard_unused(self) -> None:
+        self.primary._items.clear()
+        self.fallback._items.clear()

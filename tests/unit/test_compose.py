@@ -69,7 +69,7 @@ def test_every_instruction_key_the_plans_use_exists():
     keys = """ask_again ask_identity ask_another_detail ask_full_value restate_value explain_step decline_off_topic
     unsupported_offer_person offer_person handover closed final_notice cannot_read_out_personal_detail verified
     consent_requested consent_pending consent_denied not_listed no_claims_on_file claim_not_on_policy which_claim
-    nearest_matches overview narrow_down ask_need ask_which_answer ask_which_document answer not_on_file offer_followup anything_else
+    nearest_matches overview narrow_down ask_need ask_which_answer ask_which_document ask_which_figure answer not_on_file offer_followup anything_else
     offer_email email_sent email_skipped email_contents email_address_not_read_out different_address_not_possible
     goodbye model_trouble offer_person_in_language""".split()
     assert set(keys) == set(INSTRUCTIONS) and all(INSTRUCTIONS[k].strip() for k in keys)
