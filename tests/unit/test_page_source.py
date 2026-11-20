@@ -106,3 +106,12 @@ def test_unsent_text_is_kept_per_conversation_in_memory_only():
     assert "drafts: new Map()" in src and "app.draft " not in src and "app.draft=" not in src
     for banned in ("localStorage", "sessionStorage", "indexedDB", "document.cookie"):
         assert banned not in src, banned
+
+
+def test_every_agent_message_gets_thumbs(): assert "data-rating" in read("src/claims_agent/web/app.js") and "/feedback" in read("src/claims_agent/web/app.js")
+
+
+def test_a_rating_is_sent_as_one_operation_and_its_answer_is_checked():
+    src = js()
+    assert 'run("rate"' in src and "validRate(r.data)" in src
+

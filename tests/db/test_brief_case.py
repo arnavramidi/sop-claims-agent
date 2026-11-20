@@ -29,3 +29,15 @@ async def test_no_claim_data_reaches_a_model_before_verification(deps, conv):
     await say(deps, conv, BRIEF_MSG, FORM, BRIEF_SAID)
     assert_no_claim_data(json.dumps(asdict(deps.filler.requests[0]), default=str))
     assert_no_claim_data(json.dumps(asdict(deps.extractor.requests[0]), default=str))
+
+
+async def test_the_briefs_message_read_as_a_denial_reason_question_still_gets_the_whole_opening(deps, conv):
+    form = make_form(**GAVE, need=Pick(value="denial_question", p=0.9), how_many="one", answer_wanted="denial_reason",
+                     claim_types={"healthcare": 0.97}, claim_statuses={"denied": 0.96}, months={1: 0.95},
+                     no_year_said=True)
+    r = await say(deps, conv, BRIEF_MSG, form, BRIEF_SAID)
+    assert r.state == State.PROCESS_CASE and await focus(deps, conv) == ["CL-2048"]
+    kinds = [f.kind for f in facts(r) if f.claim == "CL-2048"]
+    assert kinds[:5] == ["found_claim", "status", "denial_reason", "documents", "deadline"]  # the claim is named first
+    t = " ".join(f.text for f in facts(r))
+    assert "pathology report" in t and "office note" in t and "2026-03-18" in t

@@ -4,13 +4,19 @@ Each test makes its change and then runs the support code's own step (the start-
 check, the end-of-session check) inside the same test, so it proves its point when run alone. One pair at the
 top proves the fixtures are wired to that step.
 
-No test here gives an account more power than a migration gives it for longer than the test itself: a change to
-a role or to the database's settings is undone in the test's own `finally`, as well as by the support code.
+No test here gives one of the three accounts more power than a migration gives it, not even for a moment: roles
+belong to the whole server and no migration takes back a membership, so a run stopped mid-test would leave that
+power behind. A test that shows a role change being caught either takes power away from an account (which the
+migration gives back) or works on a throwaway role of its own (no login, no privileges): granting one of those to
+an account gives the account nothing. Every such change is undone in the test's own `finally`, as well as being
+caught by the support code.
 """
+
+import uuid
 
 import psycopg
 import pytest
-from dbsupport import SchemaLeak, SessionBusy, TestDatabase
+from dbsupport import THROWAWAY_ROLE_PREFIX, SchemaLeak, SessionBusy, TestDatabase
 
 pytestmark = pytest.mark.db
 
@@ -26,6 +32,13 @@ async def _one(url: str, query: str, params=None):
 async def _do(url: str, statement: str) -> None:
     async with await psycopg.AsyncConnection.connect(url, autocommit=True) as c:
         await c.execute(statement)
+
+
+def _throwaway_suffix() -> str:
+    """Names a throwaway role `claims_test_tmp_<suffix>`: no real role starts with that prefix, and the random
+    suffix keeps two runs on one server apart. Statements spell the prefix out, so the check that no test
+    empowers an account can see the role is a throwaway one."""
+    return uuid.uuid4().hex[:12]
 
 
 def _rebuilt_by_the_next_reset(session_db) -> None:
@@ -147,14 +160,14 @@ async def test_forced_row_security_turned_off_is_detected_and_restored(test_db, 
 
 
 async def test_a_changed_role_attribute_is_detected_and_restored(test_db, session_db):
-    """CREATEDB opens no data; the migration states NOCREATEDB, so a rebuild must put it back."""
+    """NOLOGIN only takes power away; the migration states LOGIN, so a rebuild must put it back."""
     try:
-        await _do(test_db.superuser_url, "ALTER ROLE claims_app CREATEDB")
+        await _do(test_db.superuser_url, "ALTER ROLE claims_app NOLOGIN")
         _rebuilt_by_the_next_reset(session_db)
-        assert await _one(test_db.superuser_url, "SELECT rolcreatedb FROM pg_roles WHERE rolname = 'claims_app'") \
-            == (False,)
+        assert await _one(test_db.superuser_url, "SELECT rolcanlogin FROM pg_roles WHERE rolname = 'claims_app'") \
+            == (True,)
     finally:
-        await _do(test_db.superuser_url, "ALTER ROLE claims_app NOCREATEDB")
+        await _do(test_db.superuser_url, "ALTER ROLE claims_app LOGIN")
 
 
 # ---- changes a migration cannot undo: loud, and blamed on the test that made them -----------------------------
@@ -178,6 +191,23 @@ async def test_a_table_in_another_schema_fails_loudly_and_loses_its_rows(test_db
         assert await _one(test_db.superuser_url, "SELECT count(*) FROM probe_schema.t") == (0,)
     finally:
         await _do(test_db.superuser_url, "DROP SCHEMA IF EXISTS probe_schema CASCADE")
+    assert session_db.fingerprint() == session_db.baseline
+
+
+async def test_a_role_granted_to_an_account_fails_loudly_and_names_the_command_that_removes_it(test_db, session_db):
+    suffix = _throwaway_suffix()
+    role = THROWAWAY_ROLE_PREFIX + suffix
+    try:
+        await _do(test_db.superuser_url, f"CREATE ROLE claims_test_tmp_{suffix} NOLOGIN")
+        await _do(test_db.superuser_url, f"GRANT claims_test_tmp_{suffix} TO claims_app")
+        assert session_db.fingerprint() != session_db.baseline
+        with pytest.raises(SchemaLeak) as leak:
+            session_db.start_test()
+        assert f"membership: unexpected {role} -> claims_app" in str(leak.value)
+        assert f"""-c 'DROP ROLE "{role}"'""" in str(leak.value)
+    finally:
+        await _do(test_db.superuser_url, f"REVOKE claims_test_tmp_{suffix} FROM claims_app")
+        await _do(test_db.superuser_url, f"DROP ROLE claims_test_tmp_{suffix}")
     assert session_db.fingerprint() == session_db.baseline
 
 
@@ -212,25 +242,43 @@ async def test_a_migrated_database_is_in_the_known_good_state(test_db, session_d
     assert session_db.known_good_problems() == []
 
 
-async def test_a_powerful_account_is_not_known_good(test_db, session_db):
+async def test_an_account_attribute_unlike_the_migrations_is_not_known_good(test_db, session_db):
+    """Takes power away (NOLOGIN), never adds it; the check compares every attribute the same way."""
     try:
-        await _do(test_db.superuser_url, "ALTER ROLE claims_app CREATEDB")
-        assert session_db.known_good_problems() == ["account claims_app: rolcreatedb is True, expected False"]
+        await _do(test_db.superuser_url, "ALTER ROLE claims_app NOLOGIN")
+        assert session_db.known_good_problems() == ["account claims_app: rolcanlogin is False, expected True"]
     finally:
-        await _do(test_db.superuser_url, "ALTER ROLE claims_app NOCREATEDB")
+        await _do(test_db.superuser_url, "ALTER ROLE claims_app LOGIN")
     assert session_db.known_good_problems() == []
 
 
 async def test_a_role_setting_or_membership_is_not_known_good(test_db, session_db):
+    suffix = _throwaway_suffix()
+    role = THROWAWAY_ROLE_PREFIX + suffix
     try:
+        await _do(test_db.superuser_url, f"CREATE ROLE claims_test_tmp_{suffix} NOLOGIN")
         await _do(test_db.superuser_url,
-                  "ALTER ROLE claims_loader SET work_mem = '8MB'; GRANT claims_loader TO claims_app")
+                  f"ALTER ROLE claims_loader SET work_mem = '8MB'; GRANT claims_test_tmp_{suffix} TO claims_app")
         problems = session_db.known_good_problems()
         assert any(p.startswith("setting: unexpected claims_loader") for p in problems), problems
-        assert "membership: unexpected claims_loader -> claims_app" in problems
+        assert f"membership: unexpected {role} -> claims_app" in problems
     finally:
         await _do(test_db.superuser_url,
-                  "ALTER ROLE claims_loader RESET work_mem; REVOKE claims_loader FROM claims_app")
+                  f"ALTER ROLE claims_loader RESET work_mem; REVOKE claims_test_tmp_{suffix} FROM claims_app")
+        await _do(test_db.superuser_url, f"DROP ROLE claims_test_tmp_{suffix}")
+    assert session_db.known_good_problems() == []
+
+
+async def test_a_leftover_throwaway_role_is_not_known_good_and_names_the_command_that_removes_it(test_db, session_db):
+    suffix = _throwaway_suffix()
+    role = THROWAWAY_ROLE_PREFIX + suffix
+    try:
+        await _do(test_db.superuser_url, f"CREATE ROLE claims_test_tmp_{suffix} NOLOGIN")
+        assert session_db.known_good_problems() == [
+            f"throwaway role {role} is left over from a stopped test run; remove it with: docker compose exec -T db "
+            f"""psql -U postgres -d postgres -c 'DROP ROLE "{role}"'"""]
+    finally:
+        await _do(test_db.superuser_url, f"DROP ROLE claims_test_tmp_{suffix}")
     assert session_db.known_good_problems() == []
 
 

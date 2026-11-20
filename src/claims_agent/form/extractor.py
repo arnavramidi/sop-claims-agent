@@ -26,14 +26,19 @@ class TextExtractor:
         self._cap = max_output_tokens if max_output_tokens is not None else m.extractor_max_output_tokens
         self._effort = reasoning_effort if reasoning_effort is not None else m.extractor_reasoning_effort
 
-    async def extract(self, message: str, *, want_identity: bool, want_claim_number: bool) -> StatedValues:
+    async def extract(self, message: str, *, want_identity: bool, want_claim_number: bool,
+                      want_parts: bool = False) -> StatedValues:
         wanted = []
         if want_identity:
             wanted.append("The agent is asking for identifying details: look for the names, date of birth, phone, email, ID digits and policy number.")
         if want_claim_number:
             wanted.append("The agent is asking for a claim number: look for claim_number.")
+        if want_parts:
+            wanted.append(PARTS)
         if not wanted:
             wanted.append("Fill only fields the message clearly states.")
+        if not want_parts:
+            wanted.append("Leave question_parts empty.")
         developer = DEVELOPER.format(wanted=" ".join(wanted))
 
         async def call() -> StatedValues:
@@ -54,3 +59,8 @@ class TextExtractor:
             return response.output_parsed
 
         return await with_retry(call, retries=self._retries, timeout=self._timeout, model=self._model)
+
+
+# The questions of a message that asks several things, each one standing on its own in the caller's own words.
+PARTS = ("The message asks more than one thing: in question_parts, list each question it asks as a separate, "
+         "self-contained question in the caller's own words, in the order asked. Do not answer, merge or add questions.")

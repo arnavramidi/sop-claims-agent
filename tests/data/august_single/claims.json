@@ -1,0 +1,26 @@
+[
+  {
+    "case_id": "CL-6001",
+    "party_id": "P50",
+    "case_type": "dental",
+    "created_at": "2025-08-14",
+    "status": "closed",
+    "summary": "Dental claim completed",
+    "expected_reimbursement_amount": "100.00",
+    "allowed_max_amount": "120.00",
+    "net_pay": "100.00",
+    "net_fee": "120.00"
+  },
+  {
+    "case_id": "CL-6003",
+    "party_id": "P50",
+    "case_type": "auto",
+    "created_at": "2026-02-02",
+    "status": "open",
+    "summary": "Auto claim in progress",
+    "expected_reimbursement_amount": "100.00",
+    "allowed_max_amount": "120.00",
+    "net_pay": "100.00",
+    "net_fee": "120.00"
+  }
+]

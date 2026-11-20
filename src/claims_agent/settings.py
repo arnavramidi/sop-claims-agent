@@ -55,6 +55,10 @@ class PreparedReplies(BaseModel):
     enabled: bool
 
 
+class Braintrust(BaseModel):
+    project: str = "sop-claims-agent"
+
+
 class Freedom(BaseModel):
     claim_facts: bool
     settle_unsure: bool
@@ -95,6 +99,7 @@ class Settings(BaseModel):
     states: dict[str, StateSetting]
     needs: dict[str, Need]
     followups: Followups
+    braintrust: Braintrust = Field(default_factory=Braintrust)
 
 
 class Thresholds(BaseModel):

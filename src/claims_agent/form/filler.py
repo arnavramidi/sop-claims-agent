@@ -14,7 +14,8 @@ class FormFiller(Protocol):
 
 
 class Extractor(Protocol):
-    async def extract(self, message: str, *, want_identity: bool, want_claim_number: bool) -> StatedValues: ...
+    async def extract(self, message: str, *, want_identity: bool, want_claim_number: bool,
+                      want_parts: bool = False) -> StatedValues: ...
 
 
 @dataclass(frozen=True)
@@ -22,6 +23,7 @@ class ExtractRequest:
     message: str
     want_identity: bool
     want_claim_number: bool
+    want_parts: bool = False
 
 
 class _Scripted:
@@ -78,6 +80,7 @@ class ScriptedExtractor(_Scripted):
         super().__init__()
         self.requests: list[ExtractRequest] = []
 
-    async def extract(self, message: str, *, want_identity: bool, want_claim_number: bool) -> StatedValues:
-        self.requests.append(ExtractRequest(message, want_identity, want_claim_number))
+    async def extract(self, message: str, *, want_identity: bool, want_claim_number: bool,
+                      want_parts: bool = False) -> StatedValues:
+        self.requests.append(ExtractRequest(message, want_identity, want_claim_number, want_parts))
         return self._next()

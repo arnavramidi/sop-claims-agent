@@ -19,6 +19,7 @@ large objects, table inheritance, and objects created in the system catalog sche
 """
 
 import os
+import shlex
 import time
 from dataclasses import dataclass, field
 
@@ -50,6 +51,9 @@ EXPECTED_FORCED_ROW_SECURITY = frozenset({"claims", "claim_documents"})         
 EXPECTED_DEFAULT_PRIVILEGES = frozenset({                 # src/claims_agent/db/migrate.py ALTER DEFAULT PRIVILEGES
     "claims_owner * f {claims_owner=X/claims_owner}",
 })
+# Tests that must show a role change being caught make it on a role of their own with this prefix (no login, no
+# privileges), never on the three accounts; each drops it again. One still on the server was left by a stopped run.
+THROWAWAY_ROLE_PREFIX = "claims_test_tmp_"
 
 # The namespaces that hold the database's own objects: every schema but the system ones and the per-session
 # temporary ones (a temporary schema outlives the session that made it, but its objects do not).
@@ -346,7 +350,19 @@ class TestDatabase:
             have = {r[0] for r in rows(kind)}
             problems += [f"{kind}: unexpected {x}" for x in sorted(have - want)]
             problems += [f"{kind}: missing {x}" for x in sorted(want - have)]
+        problems += self.throwaway_role_problems()
         return problems
+
+    def throwaway_role_problems(self) -> list[str]:
+        """A throwaway role a stopped test left on the server, each with the command that removes it (dropping a
+        role also removes its memberships)."""
+        names = self._conn.execute("SELECT rolname FROM pg_roles WHERE starts_with(rolname, %s) ORDER BY 1",
+                                   [THROWAWAY_ROLE_PREFIX]).fetchall()
+        user = conninfo_to_dict(self.superuser_url).get("user", "postgres")
+        return [f"throwaway role {name} is left over from a stopped test run; remove it with: docker compose exec -T "
+                f"db psql -U {shlex.quote(user)} -d postgres -c "
+                f"{shlex.quote('DROP ROLE ' + sql.Identifier(name).as_string(self._conn))}"
+                for (name,) in names]
 
     def end_other_sessions(self) -> None:
         deadline = time.monotonic() + 5

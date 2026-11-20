@@ -216,7 +216,7 @@ async def test_the_stall_offer_is_not_added_beside_another_person_offer(deps, co
 
 
 async def test_a_last_resort_reply_leaves_a_person_offer_pending(deps, conv, monkeypatch):
-    async def last_resort(brief, wording, s, statuses, *, fixed=False):
+    async def last_resort(brief, wording, s, statuses, *, fixed=False, **_more):
         return Composed(LAST_RESORT, "last_resort", ())
     monkeypatch.setattr(engine, "compose", last_resort)
     r = await say(deps, conv, "hello there")
@@ -394,7 +394,7 @@ async def test_a_last_resort_reply_resets_the_stall_count(deps, conv, monkeypatc
         r = await say(deps, conv, "what's the weather?", make_form(about="off_topic"))
     assert r.inspector["counts"]["stalled"] == 2
 
-    async def last_resort(brief, wording, s, statuses, *, fixed=False):
+    async def last_resort(brief, wording, s, statuses, *, fixed=False, **_more):
         return Composed(LAST_RESORT, "last_resort", ())
     monkeypatch.setattr(engine, "compose", last_resort)
     r = await say(deps, conv, "what's the weather?", make_form(about="off_topic"))
@@ -503,3 +503,42 @@ async def test_the_brief_message_saves_its_claim_hint(deps, conv):
     hint = await memory(deps, conv, "hints.claim_filter")
     assert hint["types"] == ["healthcare"] and hint["statuses"] == ["denied"] and hint["months"] == [1]
     assert "years" not in hint
+
+
+# ---- an upset caller who will not give details ------------------------------------------------------------------
+
+ANGRY = "I already told you who I am. This is ridiculous. Just tell me why my claim was denied."
+# How a real form read that message: sure the caller is not calm, split between upset and angry.
+SPLIT_UPSET = Pick(value="upset", p=0.35, options={"calm": 0.0, "uneasy": 0.0, "upset": 0.51, "angry": 0.49})
+
+
+def _demand(denied_sureness=0.95):
+    return make_form(mood=SPLIT_UPSET, gave_identity_detail=False, caller_role="not_stated", mentions_claim=True,
+                     claim_statuses={"denied": denied_sureness}, need="denial_question", answer_wanted="denial_reason")
+
+
+async def test_an_upset_demand_is_worded_as_upset_and_discloses_nothing(deps, conv):
+    r = await say(deps, conv, ANGRY, _demand())
+    assert r.state == State.VERIFY_ID and instructions(r) == ["ask_identity"]
+    b = deps.wording.briefs[-1]
+    assert b.mood == "upset" and not b.verified and not any(f.claim for f in b.facts())
+
+
+async def test_the_demand_repeated_offers_a_person_on_the_second_turn_and_a_yes_hands_over(deps, conv):
+    await say(deps, conv, ANGRY, _demand())
+    # the same demand again, the claim described with other certainty: nothing moved
+    r = await say(deps, conv, "Why was my claim denied? Just answer the question.", _demand(0.9))
+    assert r.state == State.VERIFY_ID and instructions(r) == ["ask_identity", "offer_person"]
+    assert (await memory(deps, conv, "pending")).kind == "offer_person"
+    assert {"rule": "frustrated_again"} in r.inspector["fired"] and r.inspector["counts"]["stalled"] == 0
+    assert not any(f.claim for f in facts(r))
+    r = await say(deps, conv, "yes, get me a person", make_form(pending_reply="yes", mood=SPLIT_UPSET))
+    assert r.state == State.ESCALATED and await escalation_reasons(deps, conv) == ["asked_for_person"]
+
+
+async def test_an_upset_caller_who_gives_details_is_not_offered_a_person(deps, conv):
+    await say(deps, conv, ANGRY, _demand())
+    r = await say(deps, conv, "Fine. Margaret Chen, born 1985-03-15, SSN ends in 4472.",
+                  make_form(**GAVE, mood=SPLIT_UPSET),
+                  stated(policyholder_name="Margaret Chen", date_of_birth=["1985-03-15"], id_digits="4472"))
+    assert "offer_person" not in instructions(r) and await verified_party(deps, conv) == "P9"

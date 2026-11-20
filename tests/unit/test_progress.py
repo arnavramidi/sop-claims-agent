@@ -89,3 +89,15 @@ def test_f3_the_same_value_in_other_words_is_not_progress_but_a_different_value_
     c = a.model_copy(deep=True)
     c.identity.held["dob"] = HeldValue(as_stated="1 Jan 1990", key="1990-01-01", turn=2)
     assert made_progress(a, c, State.VERIFY_ID, State.VERIFY_ID, False) != []
+
+
+def test_the_same_claim_described_again_with_other_certainty_is_not_progress():
+    before = Memory.fresh()
+    before.hints.claim_filter = {"statuses": ["denied"], "sureness": {"statuses": 0.95}}
+    again = before.model_copy(deep=True)
+    again.hints.claim_filter = {"statuses": ["denied"], "sureness": {"statuses": 0.9}}
+    assert made_progress(before, again, State.VERIFY_ID, State.VERIFY_ID, False) == []
+    other = before.model_copy(deep=True)
+    other.hints.claim_filter = {"statuses": ["denied"], "types": ["healthcare"],
+                                "sureness": {"statuses": 0.95, "types": 0.9}}
+    assert made_progress(before, other, State.VERIFY_ID, State.VERIFY_ID, False) == ["hint added or changed"]

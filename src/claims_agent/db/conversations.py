@@ -66,22 +66,23 @@ async def save(conn: AsyncConnection, conversation: Conversation, memory: Memory
 
 
 async def append_turn(conn: AsyncConnection, conversation_id: UUID, turn_no: int, message: str, reply: str,
-                      state_before: str, state_after: str, record: dict) -> int:
+                      state_before: str, state_after: str, record: dict, braintrust_span_id: str | None = None) -> int:
     await _require_bound(conn, conversation_id)
     row = await (await conn.execute(
-        "INSERT INTO turns (conversation_id, turn_no, message, reply, state_before, state_after, record) "
-        "VALUES (%s, %s, %s, %s, %s, %s, %s) RETURNING id",
-        [conversation_id, turn_no, message, reply, state_before, state_after, Jsonb(record)])).fetchone()
+        "INSERT INTO turns (conversation_id, turn_no, message, reply, state_before, state_after, record, "
+        "braintrust_span_id) VALUES (%s, %s, %s, %s, %s, %s, %s, %s) RETURNING id",
+        [conversation_id, turn_no, message, reply, state_before, state_after, Jsonb(record),
+         braintrust_span_id])).fetchone()
     return row[0]
 
 
 async def transcript(conn: AsyncConnection, conversation_id: UUID) -> list[dict]:
     await _require_bound(conn, conversation_id)
     cur = await conn.execute(
-        "SELECT turn_no, message, reply, state_after, record FROM turns WHERE conversation_id = %s "
+        "SELECT turn_no, message, reply, state_after, record, id FROM turns WHERE conversation_id = %s "
         "ORDER BY turn_no, id", [conversation_id])
-    return [{"turn_no": n, "message": m, "reply": r, "state_after": s, "record": rec}
-            for n, m, r, s, rec in await cur.fetchall()]
+    return [{"turn_no": n, "message": m, "reply": r, "state_after": s, "record": rec, "id": i}
+            for n, m, r, s, rec, i in await cur.fetchall()]
 
 
 async def add_escalation(conn: AsyncConnection, conversation_id: UUID, turn_no: int, kind: str, reason: str,
@@ -98,3 +99,16 @@ async def set_controls(conn: AsyncConnection, conversation_id: UUID, *, consent_
     await conn.execute(
         "UPDATE conversations SET consent_script = COALESCE(%s, consent_script), today = COALESCE(%s, today), "
         "updated_at = now() WHERE id = %s", [consent_script, today, conversation_id])
+
+
+async def set_rating(conn: AsyncConnection, turn_id: int, rating: int, comment: str | None) -> tuple[bool, str | None]:
+    """Store a turn's rating (a second one replaces the first). Returns (the turn exists, its Braintrust span id or
+    None)."""
+    row = await (await conn.execute("SELECT braintrust_span_id FROM turns WHERE id = %s", [turn_id])).fetchone()
+    if row is None:
+        return False, None
+    await conn.execute(
+        "INSERT INTO feedback (turn_id, rating, comment) VALUES (%s, %s, %s) "
+        "ON CONFLICT (turn_id) DO UPDATE SET rating = EXCLUDED.rating, comment = EXCLUDED.comment",
+        [turn_id, str(rating), comment])
+    return True, row[0]

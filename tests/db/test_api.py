@@ -147,7 +147,7 @@ def test_a_restored_turn_carries_its_record_as_inspector(client, scripted):
     sent = client.post(f"/api/conversations/{cid}/messages", json={"text": "hello there"}).json()
     assert set(sent) == {"turn_id", "reply", "state", "inspector"}
     turn = client.get(f"/api/conversations/{cid}").json()["turns"][0]
-    assert set(turn) == {"turn_no", "message", "reply", "state_after", "inspector"}
+    assert set(turn) == {"turn_no", "message", "reply", "state_after", "inspector", "turn_id"}
     assert turn["inspector"] == sent["inspector"] and turn["reply"] == sent["reply"]
 
 

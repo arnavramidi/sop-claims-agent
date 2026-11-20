@@ -58,3 +58,6 @@ button.plain { background: #fff; color: var(--ink); border-color: #6b6b66; }
 .leaf { overflow-wrap: anywhere; white-space: pre-wrap; }
 .empty { color: var(--muted); font-style: italic; }
 details.static { border-top: 1px solid var(--op-line); padding: 6px 0; }
+.thumbs { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin-top: 6px; }
+.thumbs .muted { margin: 0; }
+.thumbs-comment { flex: 1 1 10rem; min-width: 0; }

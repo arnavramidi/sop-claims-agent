@@ -448,6 +448,8 @@ def check_reply(reply: str, brief: ReplyBrief, *, wary_status_words: Sequence[st
             chars = [re.escape(c) for c in _norm(number) if c.isalnum()]
             if chars and re.search(r"[\W_]*".join(chars), t):
                 failed.add("claim_detail_before_verification")
+        if _states_a_status(t, data_statuses, status_forms or {}):
+            failed.add("claim_detail_before_verification")
 
     fact_claims = [_claim_key(f.claim) for f in facts if f.claim]
     known = [k for k in {*fact_claims, *caller_keys} if k]
@@ -499,3 +501,25 @@ def check_reply(reply: str, brief: ReplyBrief, *, wary_status_words: Sequence[st
 
     ordered = tuple(f for f in (*_LEAK, *_INVENTED) if f in failed)
     return CheckResult(not ordered, ordered)
+
+
+def _states_a_status(t: str, data_statuses: Sequence[str], forms_map: Mapping[str, Sequence[str]]) -> bool:
+    """Before verification no claim's state may be stated, not even one the caller named ("I'm sorry your claim was
+    denied" confirms it). A status the data uses, or one of its forms, counts when the sentence uses it as a claim's
+    state, by the same sentence patterns as the wary words; "a denied claim" or "claim details" do not."""
+    for status in data_statuses:
+        s = _norm(status).strip()
+        if not s:
+            continue
+        forms = [_norm(f).strip() for f in forms_map.get(status, forms_map.get(s, [])) or [s]]
+        if s not in forms:
+            forms.append(s)
+        for form, pat in zip(forms, _status_regexes(forms)):
+            for m in pat.finditer(t):
+                before = _sentence_before(t, m.start())
+                if _STATE_BEFORE.search(before):
+                    return True
+                if _ACTIVE_AFTER.search(t[m.end():m.end() + 60]) and not (
+                        form.endswith("ing") and _FIRST_PERSON_ING.search(before)):
+                    return True
+    return False

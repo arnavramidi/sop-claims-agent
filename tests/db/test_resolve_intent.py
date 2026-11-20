@@ -214,12 +214,12 @@ async def test_sending_documents_with_none_requested_enters_at_status(deps, marg
 
 
 async def test_an_unsure_need_with_two_readings_asks_which(deps, margaret):
-    unsure = Pick(value="denial_question", p=0.45, options={"denial_question": 0.45, "next_steps": 0.4, "none": 0.15})
+    unsure = Pick(value="status_inquiry", p=0.45, options={"status_inquiry": 0.45, "next_steps": 0.4, "none": 0.15})  # a denial question is ruled out for this closed claim before the caller is asked
     r = await say(deps, margaret, "about my dental claim, what now?",
                   make_form(how_many="one", claim_types={"dental": 0.95}, need=unsure))
     part = next(p for p in parts(r) if p.instruction == "ask_need")
     assert r.state == State.RESOLVE_INTENT and await focus(deps, margaret) == ["CL-1899"]
-    assert {f.text for f in part.facts} >= {"Possible need: denial question", "Possible need: next steps"}
+    assert {f.text for f in part.facts} >= {"Possible need: status inquiry", "Possible need: next steps"}
 
 
 async def test_a_need_given_before_verification_is_used(deps, conv):
@@ -391,7 +391,7 @@ async def test_f2_an_answer_to_the_need_question_keeps_the_claim_in_focus(deps, 
 
 
 async def test_f2_all_my_claims_as_a_new_search_still_widens(deps, margaret):
-    unsure = Pick(value="denial_question", p=0.45, options={"denial_question": 0.45, "next_steps": 0.4, "none": 0.15})
+    unsure = Pick(value="status_inquiry", p=0.45, options={"status_inquiry": 0.45, "next_steps": 0.4, "none": 0.15})  # a denial question is ruled out for this closed claim before the caller is asked
     await say(deps, margaret, "about my dental claim, what now?",
               make_form(how_many="one", claim_types={"dental": 0.95}, need=unsure))
     assert await focus(deps, margaret) == ["CL-1899"]  # still in RESOLVE_INTENT, asking which need

@@ -17,7 +17,8 @@ from claims_agent.db.claims import (Claim, ClaimFilter, count, fetch, fetch_ids,
                                     filter_to_dict, find_numbered, merge, most_even_split, overview, relax,
                                     with_need)
 from claims_agent.db.identity import account_info
-from claims_agent.rules import calculate
+from claims_agent.rules import calculate, unsure
+from claims_agent.rules.summary_match import NOT_SEPARATED, found_claim_fact, try_summary
 from claims_agent.engine import PLAIN, STEPS, StepOutcome, TurnContext
 from claims_agent.form.read import picked, top_two, yes
 from claims_agent.memory import FocusMemory, Memory, Pending
@@ -78,8 +79,8 @@ def _differing(claims: list[Claim]) -> tuple[str, ...]:
     return ("summary",) if len({c.summary for c in claims}) > 1 else FULL
 
 
-def _which_claim(claims: list[Claim]) -> ReplyPart:
-    facts = (Fact("count", f"Claims to choose from: {len(claims)}"),
+def _which_claim(claims: list[Claim], said: tuple[Fact, ...] = ()) -> ReplyPart:
+    facts = (Fact("count", f"Claims to choose from: {len(claims)}"), *said,
              *(_describe(c, _differing(claims)) for c in claims))
     return ReplyPart("which_claim", facts, sentences("Which claim do you mean?", facts), pending=WHICH_CLAIM)
 
@@ -177,6 +178,25 @@ class _Resolve:
         lead = NO_MATCH_LEAD + (" These are the nearest." if relaxed.conditions() else " Here is what is on file.")
         self.parts.append(ReplyPart("nearest_matches", facts, sentences(lead, facts[1:]), pending=WHICH_CLAIM))
 
+    async def by_summary(self, claims: list[Claim]) -> list[Claim] | None:
+        """Two to five claims were listed and one was meant: the fast model reads their summaries. The claim picked is
+        returned; otherwise the same list is asked again, and a description that cannot tell says so."""
+        res = await try_summary(self.ctx, claims)
+        if res.outcome != "not_asked":
+            self.fired.append({"rule": "summary_pick", "outcome": res.outcome})
+        if res.case_id is not None:
+            self.focus.match_count = 1
+            return [c for c in claims if c.case_id == res.case_id]
+        said = (NOT_SEPARATED,) if res.outcome == "cannot_tell" else ()
+        self.parts.append(_which_claim(claims, said))
+        return None
+
+    def found(self, claims: list[Claim]) -> None:
+        """A claim that comes into focus from a description is introduced as it is on file, and nothing more."""
+        for c in claims:
+            fact = found_claim_fact(c)
+            self.parts.append(ReplyPart("found_claim", (fact,), sentences("", (fact,))))
+
     async def describe(self, described: ClaimFilter, need: str | None, how_many: str) -> list[Claim] | None:
         """Steps 3 and 4 for a description: query, then decide by match count and how many were meant. Returns the
         claims now in focus, or None when the caller is shown something and asked."""
@@ -191,12 +211,16 @@ class _Resolve:
             return None
         if n == 1 or (n <= self.limit and how_many in ("several", "all")):
             self.focus.claim_filter, self.focus.match_count = filter_to_dict(f), n
-            return await fetch(conn, f, today, self.limit)
+            claims = await fetch(conn, f, today, self.limit)
+            self.found(claims)
+            return claims
         if n <= self.limit:
             claims = await fetch(conn, f, today, self.limit)
             self.shown(f, n, claims)
-            self.parts.append(_which_claim(claims))
-            return None
+            chosen = await self.by_summary(claims)
+            if chosen is not None:
+                self.found(chosen)
+            return chosen
         await self.many(f, n, how_many)
         return None
 
@@ -258,6 +282,16 @@ async def _which(r: _Resolve, total: int, need: str | None, how_many: str) -> li
                 r.fired.append({"rule": "listed_claim", "rejected": True})
                 return None
         focus.last_list = []  # the list is no longer visible: treat it as not found and read the message afresh
+
+    # The caller answers a list by describing one of its claims: the fast model reads the listed summaries.
+    pending = ctx.memory.pending
+    if focus.last_list and pending is not None and pending.kind == WHICH_CLAIM.kind and not new.conditions():
+        shown = await fetch_ids(conn, focus.last_list)
+        if len(shown) >= 2:
+            chosen = await r.by_summary(shown)
+            if chosen is not None:
+                r.found(chosen)
+            return chosen
 
     # Claims already in focus and nothing in the message points elsewhere: keep them; only the need is settled.
     if focus.claim_ids and not new.conditions() and not all_afresh:
@@ -341,9 +375,12 @@ async def step(ctx: TurnContext) -> StepOutcome:
     focus.claim_ids = [c.case_id for c in claims][: r.limit]
     focus.last_list = []
     note = None
+    if need is None:  # unsure: the cheaper steps first, the caller asked only when they settle nothing
+        settled = await unsure.need_in_focus(ctx, claims)
+        r.fired += unsure.fired(settled)
+        need = None if settled.value in NOT_A_NEED else settled.value
     if need is None:
-        readings = top_two(form.need) if picked(form.need, t) is None else []
-        readings = [x for x in readings if x not in NOT_A_NEED]
+        readings = [x for x in (settled.ask or ()) if x not in NOT_A_NEED]
         if len(set(readings)) == 2:
             facts = tuple(Fact("possible_need", f"Possible need: {x.replace('_', ' ')}") for x in readings)
             r.parts.append(ReplyPart("ask_need", facts, "Just to check, which do you mean: "

@@ -12,6 +12,8 @@ dependencies = [
   "psycopg[binary,pool]",
   "pydantic>=2",
   "openai==3.57.0",
+  "braintrust",
+  "autoevals",
 ]
 
 [project.optional-dependencies]
@@ -24,6 +26,9 @@ where = ["src"]
 claims_agent = ["web/*.html", "web/*.js", "web/*.css"]
 
 [tool.pytest.ini_options]
+# The tracing library ships a pytest plugin that imports it at start-up; it is switched off so that a run with no
+# key can show the library is never imported.
+addopts = "-p no:braintrust"
 asyncio_mode = "auto"
 asyncio_default_fixture_loop_scope = "function"
 testpaths = ["tests"]

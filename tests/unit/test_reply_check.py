@@ -392,3 +392,59 @@ def test_r4_first_is_a_date_only_after_the_or_a_month_or_before_of_a_month():
         assert failures(text, facts=F) & {"number_not_in_facts", "month_not_in_facts"}, text
     for text in ["First of all, I'm sorry about this.", "Let me first check your claim."]:
         assert failures(text, facts=F) == set(), text
+
+
+# ---- an acknowledging sentence for an upset caller ------------------------------------------------------------
+
+_EMPATHY = [
+    "I understand this is frustrating, and I'm sorry you've had to repeat yourself.",
+    "I hear you, and I know this has been a stressful wait.",
+    "I'm sorry this has been so upsetting.",
+    "I can tell this is the second time you've asked, and I understand why you're annoyed.",
+    "That sounds really worrying. I'm here to help you get this sorted out.",
+    "I know this feels like one more hoop to jump through.",
+    "Thanks for bearing with me for a moment.",
+]
+_DENIAL_FACTS = (Fact("status", "Claim CL-2048 status: denied.", "CL-2048"),
+                 Fact("denial_reason", "Claim CL-2048 was denied because the review file did not include the "
+                                       "pathology report.", "CL-2048"))
+
+
+@pytest.mark.parametrize("sentence", _EMPATHY)
+def test_an_acknowledging_sentence_passes_before_and_after_verification(sentence):
+    ask = " To verify who you are, I need 3 of these 5 details: full name, date of birth, phone number, email address or the ID on file."
+    assert failures(sentence + ask, facts=_RULE_ONLY, verified=False) == set()
+    answer = " Claim CL-2048 was denied because the review file did not include the pathology report."
+    assert failures(sentence + answer, facts=_DENIAL_FACTS) == set()
+
+
+@pytest.mark.parametrize("text, failure", [
+    ("I'm sorry for the trouble. Your claim was approved after all.", "status_word"),
+    ("I understand this is frustrating. Your claim is now under review.", "status_word"),
+    ("I'm sorry about this. You'll hear back within 5 days.", "number_not_in_facts"),
+    ("I know this is stressful. You should get $500 back.", "number_not_in_facts"),
+    ("I'm so sorry. It will be sorted by Friday.", "number_not_in_facts"),
+    ("I understand. You can call 650-521-2836 for help.", "phone_number"),
+])
+def test_an_acknowledging_sentence_does_not_let_an_invented_fact_through(text, failure):
+    assert failure in failures(text, facts=_DENIAL_FACTS)
+    assert failure in failures(text, facts=_RULE_ONLY, verified=False)
+
+
+@pytest.mark.parametrize("text", [
+    "I'm sorry your claim was denied, but I need to verify you first.",
+    "I understand you're upset that the claim has been denied.",
+    "I'm sorry to hear your claim is closed. Could you give me your full name?",
+    "I know it's frustrating that they denied your claim.",
+])
+def test_before_verification_a_claims_status_is_never_stated(text):
+    assert "claim_detail_before_verification" in failures(text, facts=_RULE_ONLY, verified=False)
+
+
+@pytest.mark.parametrize("text", [
+    "I need 3 of these 5 details before I can discuss a denied claim.",
+    "I can only share claim details, including why a claim was or wasn't paid, once you're verified.",
+    "Claim details are protected, so I need to verify who you are first.",
+])
+def test_before_verification_talking_about_verification_is_not_a_status(text):
+    assert failures(text, facts=_RULE_ONLY, verified=False) == set()

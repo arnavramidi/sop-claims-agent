@@ -28,7 +28,7 @@ from claims_agent.form.read import confident_yes, picked, yes
 from claims_agent.loader.read import FollowupRow
 from claims_agent.memory import Pending, RequestMemory
 from claims_agent.reply.brief import Fact, ReplyPart
-from claims_agent.rules import calculate
+from claims_agent.rules import calculate, unsure
 from claims_agent.rules.every_message import PERSON_OFFER
 from claims_agent.rules.resolve_intent import GENERAL as GENERAL_NEED, destination_fact, sentences
 from claims_agent.settings import Settings
@@ -232,7 +232,7 @@ class _Case:
     def entry(self) -> StepOutcome:
         """The need RESOLVE_INTENT settled, its note (for each claim whose fresh row holds it), then each claim's
         opening; or, when this turn's message confidently asked for one specific answer (a question about the claim
-        just put in focus), that answer in place of the opening."""
+        just put in focus) that the opening neither gives nor explains, that answer in place of the opening."""
         focus = self.ctx.memory.focus
         self.request.need = focus.need or GENERAL_NEED
         note = focus.need_note if focus.need_note in NOTE_TEXT else None
@@ -240,8 +240,10 @@ class _Case:
                 for c in self.claims if note is not None and NOTE_HOLDS[note](c)]
         answer = picked(self.form.answer_wanted, self.t)
         if answer is not None and answer not in NOT_AN_ANSWER:
-            self.fired.append({"rule": "entered_with_a_question", "need": self.need, "answer": answer})
-            return self.give_answer(answer, lead)
+            if not opening_covers(answer, self.need, note if lead else None, self.claims, self.s):
+                self.fired.append({"rule": "entered_with_a_question", "need": self.need, "answer": answer})
+                return self.give_answer(answer, lead)
+            self.fired.append({"rule": "question_in_opening", "need": self.need, "answer": answer})
         results = []
         for c in self.claims:
             for a in opening(self.need, c, self.s):
@@ -260,7 +262,7 @@ class _Case:
                    if offer_kind(c.case_id, topic) == pending.kind]
         return matches[0] if len(matches) == 1 else None
 
-    def offer_answered(self) -> StepOutcome | None:
+    async def offer_answered(self) -> StepOutcome | None:
         pending = self.ctx.memory.pending
         if pending is None or not pending.kind.startswith(OFFER_PREFIX):
             return None
@@ -277,7 +279,7 @@ class _Case:
             if f.topic not in declined:
                 declined.append(f.topic)
             self.fired.append({"rule": "followup_declined", "claim": claim.case_id, "topic": f.topic})
-            return self.cant_get() or self.asked()  # the rest of the message, if it asks anything
+            return self.cant_get() or await self.asked()  # the rest of the message, if it asks anything
         if self.wants_document_help() and self.document_set():
             return self.cant_get()  # "yes, and I can't get the office note": that document's own alternatives
         if not exists_for(f, claim, self.g, self.s):
@@ -361,7 +363,7 @@ class _Case:
 
     # ---- what the caller asked for -------------------------------------------------------------------------------
 
-    def asked(self) -> StepOutcome:
+    async def asked(self) -> StepOutcome:
         form, t = self.form, self.t
         # A different claim goes back to the claim-choosing state whatever the answer pick (it keeps the focus when
         # the message describes no other claim).
@@ -369,6 +371,10 @@ class _Case:
         if mentions and picked(form.search_relation, t) in SWITCHING:
             return self.hop_back({"rule": "another_claim"})
         answer = picked(form.answer_wanted, t)
+        if answer is None:  # unsure: the larger model first, the caller asked only when it settles nothing
+            settled = await unsure.answer_wanted(self.ctx)
+            self.fired += unsure.fired(settled)
+            answer = settled.value
         if answer == "something_else":
             self.fired.append({"rule": "not_on_file", "answer": answer})
             return self.finish(*_parts(self.results(NOT_ON_FILE, self.claims)))
@@ -407,7 +413,20 @@ async def step(ctx: TurnContext) -> StepOutcome:
 
     if ctx.entered_by_hop:
         return await case.calculate() or case.entry()
-    return case.offer_answered() or case.cant_get() or await case.calculate() or case.asked()
+    return await case.offer_answered() or case.cant_get() or await case.calculate() or await case.asked()
 
 
 STEPS[State.PROCESS_CASE] = step
+
+
+# The answer each need note explains: the caller asked for it, and the note says why the claim has none.
+NOTE_EXPLAINS = {"not_denied": "denial_reason", "no_documents_requested": "documents_needed"}
+
+
+def opening_covers(answer: str, need: str, note: str | None, claims: Sequence[Claim], s: Settings) -> bool:
+    """Whether the opening for the need already gives the answer the caller asked for (it is among the opening's
+    answers for a claim in focus) or explains why there is none (`note`, set when it holds for a claim in focus).
+    Then the caller gets the whole opening, which answers the question and says what comes with it."""
+    if note is not None and NOTE_EXPLAINS.get(note) == answer:
+        return True
+    return any(answer in opening(need, c, s) for c in claims)

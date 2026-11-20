@@ -40,6 +40,7 @@ services:
       DATABASE_URL: postgresql://claims_app:${APP_PASSWORD}@db:5432/claims
       OPENAI_API_KEY: ${OPENAI_API_KEY:-}
       BRAINTRUST_API_KEY: ${BRAINTRUST_API_KEY:-}
+      ADMIN_DATABASE_URL: ${ADMIN_DATABASE_URL:-}
       SETTINGS_FILE: /app/settings.toml
     depends_on:
       setup:

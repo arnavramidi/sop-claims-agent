@@ -21,6 +21,8 @@ operator panel on the right that shows what was decided on each turn and by what
 (code, the fast model, the text model, or the larger model). A caller would never see
 that panel.
 
+![The chat page, with the operator panel on the right](docs/screenshots/chat.png)
+
 ## Try this
 
 1. The full flow in one message:
@@ -37,13 +39,24 @@ that panel.
 
    > I already told you who I am. This is ridiculous. Just tell me why my claim was denied.
 
-   The agent acknowledges the frustration, explains that claim details are protected,
-   says which details it can accept, and discloses nothing.
+   The agent acknowledges the frustration, explains that claim details are protected
+   until the caller is verified, says which details it can accept, and discloses
+   nothing. Repeat the demand and it offers to pass you to a person ("yes" hands over).
+   Give "Margaret Chen, born 1985-03-15, SSN ends in 4472" instead and you are verified
+   and answered in the same turn.
 
-3. Totals and comparisons, once verified: "how much was I paid in total across my claims?" The database does the
-   sum over the caller's own claims and the reply states only that figure; no model does arithmetic.
+3. Several questions at once, once verified: "why was it denied, and when do I need to
+   send the documents?" Up to three questions in one message are each answered in the
+   same reply.
 
-4. Out of scope: "what is reinforcement learning?" is declined politely. Ask for a
+4. Which claim: "what about my other claims?" lists the ones that match and asks which.
+   Answer by pointing ("the second one", "the newer one") or by describing it.
+
+5. Totals and comparisons, once verified: "how much was I paid in total across my
+   claims?" The database does the sum over the caller's own claims and the reply states
+   only that figure; no model does arithmetic.
+
+6. Out of scope: "what is reinforcement learning?" is declined politely. Ask for a
    person at any point and the agent offers a hand-over.
 
 ## How a turn works
@@ -92,7 +105,7 @@ it only as "the email on your policy".
 |---|---|
 | Fill the form (OpenAI Decisions API, about 40 questions in one request) | `gpt-6-luna` |
 | Pull out stated values; word the reply | `gpt-6.1-sol` |
-| Rewrite a reply that failed the check | `gpt-6-astra` |
+| Rewrite a reply that failed the check; settle a request the fast model was unsure about (each at most once per turn) | `gpt-6-astra` |
 
 Measured on the test message above: about 0.4 cents and four to six seconds per caller
 message. Model names and thresholds are in `settings.toml` and `thresholds.toml`.
@@ -104,6 +117,32 @@ model, owns every transition. Each state is one function that takes the filled f
 returns the next state and the facts for the reply, which maps directly onto a graph of
 nodes and conditional edges if you wanted to move it into a framework later. Keeping it
 as plain functions made the access rules easy to test.
+
+### When the fast model is unsure
+
+If the form comes back unsure between two readings of what the caller wants, code tries
+the cheap steps first: rule out a reading the claim itself makes impossible, ask the fast
+model one focused question, then ask the larger model once. Only if that settles nothing
+does the agent ask the caller, naming the two readings. An ending such as a hand-over
+always needs a confident answer; an unsure one becomes a question, never an action.
+
+## Tracing and ratings (optional)
+
+Set `BRAINTRUST_API_KEY` in `.env` and every turn is logged to Braintrust (project
+`sop-claims-agent`): the caller's message, the reply, and the stored turn record with the
+filled form, what code decided and the reply-check result. ID numbers are masked to their
+last four digits and email addresses are removed before anything is sent. Thumbs up and
+down under each reply are stored locally and attached to that turn's trace. Without the
+key nothing is imported and no network call is made, and a Braintrust outage never
+affects a caller's turn.
+
+## Demo control (optional)
+
+For demos, the operator panel can change a verified customer's claim (status, appeal
+deadline, documents needed) so you can watch the next reply pick it up; the agent
+re-reads claims on every turn. It is off by default. To switch it on, set
+`ADMIN_DATABASE_URL` in `.env` to the loader account's address. The server's own account
+never gains write access to claims.
 
 ## Other data
 
@@ -118,7 +157,7 @@ scripts/test.sh              # everything, inside Docker, against a real Postgre
 scripts/test.sh tests/unit   # one folder or file
 ```
 
-About 700 tests: unit tests for the form, identity matching, the reply check and the
+About 950 tests: unit tests for the form, identity matching, the reply check and the
 loader, and whole-conversation tests that run each state against a real database with
 scripted models. The security tests connect as the server's own account and try to read
 another customer's claims.
@@ -137,4 +176,9 @@ another customer's claims.
 - The identity check has no per-caller rate limit; a real deployment needs one.
 - Personal details are logged as typed because only sample data is used. Production
   would mask them where turn records are written.
-- One message that asks several things is answered for its main question first.
+- A message is split into questions by a model, and only after verification; a question
+  the split drops cannot be detected by code. Beyond three questions the reply asks for
+  the rest in the next message.
+- The acknowledging sentence for an upset caller is worded by the model, so it varies and
+  can repeat from one turn to the next.
+- A rating given with the thumbs is stored but not shown again after the page reloads.

@@ -1,0 +1,26 @@
+[
+  {
+    "case_id": "CL-6001",
+    "party_id": "P50",
+    "case_type": "healthcare",
+    "created_at": "2025-08-09",
+    "status": "closed",
+    "summary": "Emergency room visit for a broken tooth after a fall",
+    "expected_reimbursement_amount": "100.00",
+    "allowed_max_amount": "120.00",
+    "net_pay": "100.00",
+    "net_fee": "120.00"
+  },
+  {
+    "case_id": "CL-6002",
+    "party_id": "P50",
+    "case_type": "dental",
+    "created_at": "2025-08-21",
+    "status": "closed",
+    "summary": "Routine cleaning and x-rays",
+    "expected_reimbursement_amount": "100.00",
+    "allowed_max_amount": "120.00",
+    "net_pay": "100.00",
+    "net_fee": "120.00"
+  }
+]

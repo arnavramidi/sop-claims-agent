@@ -50,6 +50,9 @@ processing = ["processing", "processed"]
 [prepared_replies]
 enabled = false
 
+[braintrust]
+project = "sop-claims-agent"
+
 [freedom.strict]
 claim_facts = false
 settle_unsure = false

@@ -15,6 +15,10 @@ RECENT_WINDOW = 6  # how many earlier caller messages a request carries (and ask
 MONTH_NAMES = ["January", "February", "March", "April", "May", "June", "July",
                "August", "September", "October", "November", "December"]
 
+# A month or year inside a date of birth describes the caller, never a claim.
+NOT_A_CLAIM_DATE = "A date of birth is not the time of a claim."
+
+
 @dataclass(frozen=True)
 class Question:
     name: str
@@ -116,8 +120,10 @@ def build_questions(req: FormRequest) -> list[Question]:
     qs += [_yn(f"claim_type:{v}", f"Does the caller mean a claim of type {v}?") for v in dict.fromkeys(req.claim_types)]
     qs += [_yn(f"claim_status:{v}", f"Does the caller mean a claim whose status is {v}?")
            for v in dict.fromkeys(req.claim_statuses)]
-    qs += [_yn(f"month:{m}", f"Does the caller mention {MONTH_NAMES[m - 1]}?") for m in range(1, 13)]
-    qs += [_yn(f"year:{y}", f"Does the caller mention the year {y}?") for y in dict.fromkeys(req.years)]
+    qs += [_yn(f"month:{m}", f"Does the caller mention {MONTH_NAMES[m - 1]} as the time of a claim? {NOT_A_CLAIM_DATE}")
+           for m in range(1, 13)]
+    qs += [_yn(f"year:{y}", f"Does the caller mention the year {y} as the time of a claim? {NOT_A_CLAIM_DATE}")
+           for y in dict.fromkeys(req.years)]
     qs += [
         _yn("no_year_said", "Does the caller mention a month or date without saying a year?"),
         c("relative_time", "Does the caller describe a claim by how recent it is?",

@@ -115,7 +115,8 @@ def make_deps(db, **overrides):
     """Engine dependencies over a loaded test database (`TestDb`): scripted filler, extractor and wording."""
     from claims_agent.engine import Deps
     values = dict(settings=load_settings(), thresholds=load_thresholds(), db=db.app, guidance=None,
-                  filler=TurnFiller(), extractor=TurnExtractor(), wording=ScriptedWording())
+                  filler=TurnFiller(), extractor=TurnExtractor(), wording=ScriptedWording(),
+                  settler=ScriptedSettler())
     values.update(overrides)
     return Deps(**values)
 
@@ -270,3 +271,27 @@ class SwitchingTestFiller(SwitchingFiller):
     def discard_unused(self) -> None:
         self.primary._items.clear()
         self.fallback._items.clear()
+
+
+class ScriptedSettler:
+    """A stand-in for the larger model settling an unsure pick: gives out its queued picks in order (a queued error is
+    raised), or raises `error` on every call; with nothing queued it cannot tell either."""
+
+    def __init__(self, picks=(), *, error: BaseException | None = None) -> None:
+        self._picks: list = list(picks)
+        self._error = error
+        self.calls: list = []  # (request, question) per call
+
+    def queue(self, pick) -> None:
+        self._picks.append(pick)
+
+    async def settle(self, req, question) -> Pick:
+        self.calls.append((req, question))
+        if self._error is not None:
+            raise self._error
+        if not self._picks:
+            return Pick(value=None, by="larger")
+        item = self._picks.pop(0)
+        if isinstance(item, BaseException):
+            raise item
+        return item

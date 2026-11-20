@@ -70,7 +70,7 @@ async def test_entry_gives_the_opening_then_offers_the_first_followup(deps, marg
     r = await say(deps, margaret, "why was my denied healthcare claim denied?", make_form(need="denial_question", claim_statuses={"denied": 0.95}, how_many="one"))
     # Plan correction: the answers module names these facts "documents" and "deadline" (the answers asked for are
     # documents_needed and appeal_deadline).
-    assert [f.kind for f in facts(r) if f.claim == "CL-2048"][:4] == ["status", "denial_reason", "documents", "deadline"]
+    assert [f.kind for f in facts(r) if f.claim == "CL-2048" and f.kind != "found_claim"][:4] == ["status", "denial_reason", "documents", "deadline"]
     # Plan correction (fix round 1, F1): an offer names the claim it was made for.
     assert (await memory(deps, margaret, "pending")).kind == "offer_followup:CL-2048:missing_required_material_alternatives"
 
@@ -654,3 +654,47 @@ async def test_r2_6_the_which_document_question_has_its_own_instruction_and_text
     part = next(p for p in parts(r) if p.instruction == "ask_which_document")
     assert part.plain.startswith("Which document can't you get") and r.reply.count("?") == 1
     assert all(f.kind == "requested_document" for f in part.facts)
+
+
+# ---- a question asked as the claim is chosen ------------------------------------------------------------------
+
+DENIAL_KINDS = ["status", "denial_reason", "documents", "deadline"]
+
+
+async def test_a_confident_pick_the_opening_already_gives_gets_the_whole_opening(deps, margaret):
+    r = await say(deps, margaret, "why was my denied healthcare claim denied?",
+                  make_form(need="denial_question", claim_statuses={"denied": 0.95}, claim_types={"healthcare": 0.95},
+                            how_many="one", answer_wanted="denial_reason"))
+    assert await focus(deps, margaret) == ["CL-2048"]
+    assert [f.kind for f in facts(r) if f.claim == "CL-2048" and f.kind != "found_claim"][:4] == DENIAL_KINDS
+    assert {"rule": "question_in_opening", "need": "denial_question", "answer": "denial_reason"} in r.inspector["fired"]
+
+
+async def test_a_denial_question_about_a_claim_not_denied_gets_the_note_then_the_status(deps, margaret):
+    r = await say(deps, margaret, "why was CL-2011 denied?",
+                  make_form(quoted_claim_number=True, need="denial_question", answer_wanted="denial_reason"),
+                  stated(claim_number="CL-2011"))
+    kinds = [f.kind for f in facts(r)]
+    assert kinds[:2] == ["not_denied", "status"] and "denial_reason" not in kinds and "not_on_file" not in kinds
+
+
+async def test_an_amount_asked_as_the_claim_is_chosen_replaces_the_opening(deps, margaret):
+    r = await say(deps, margaret, "how much did they allow on my auto claim?",
+                  make_form(answer_wanted="amounts", mentions_claim=True, claim_types={"auto": 0.95}, how_many="one",
+                            need="general_claim_question"))
+    assert await focus(deps, margaret) == ["CL-2102"]
+    assert any("allowed max amount: 3500.00" in f.text for f in facts(r) if f.claim == "CL-2102")
+    assert not any(f.kind == "status" for f in facts(r))
+
+
+# ---- an upset caller --------------------------------------------------------------------------------------------
+
+SPLIT_UPSET = Pick(value="upset", p=0.35, options={"calm": 0.0, "uneasy": 0.0, "upset": 0.51, "angry": 0.49})
+
+
+async def test_an_upset_caller_asking_about_a_denial_is_worded_as_upset_and_gets_the_facts(deps, margaret):
+    r = await say(deps, margaret, "I'm really upset. Why on earth was my healthcare claim denied?",
+                  make_form(need="denial_question", claim_statuses={"denied": 0.95}, claim_types={"healthcare": 0.95},
+                            how_many="one", answer_wanted="denial_reason", mood=SPLIT_UPSET))
+    assert deps.wording.briefs[-1].mood == "upset"
+    assert [f.kind for f in facts(r) if f.claim == "CL-2048" and f.kind != "found_claim"][:4] == DENIAL_KINDS

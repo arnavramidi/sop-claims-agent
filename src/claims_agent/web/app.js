@@ -11,6 +11,9 @@ const ENDED_LINE = new Map([
   ["ESCALATED", "This conversation has been passed to a person, who will pick it up from here."],
   ["CLOSED", "This conversation has ended."],
 ]);
+const RATE_FAILED_LINE = "Your rating could not be saved. Try again.";
+const RATED_UP_LINE = "Rated helpful.";
+const RATED_DOWN_LINE = "Rated not helpful.";
 const MAX_DEPTH = 8;
 const REQUEST_TIMEOUT_MS = 150000; // above the server's worst case of about two minutes
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -112,6 +115,9 @@ const validGet = (d) => isObj(d) && typeof d.state === "string" && Array.isArray
   validControls(d.controls);
 const validSend = (d) => isObj(d) && typeof d.reply === "string" && typeof d.state === "string" && validInspector(d.inspector);
 const validMeta = (d) => isObj(d) && Array.isArray(d.consent_scripts) && d.consent_scripts.every((n) => typeof n === "string");
+const validClaimChange = (d) => isObj(d) && d.ok === true && typeof d.updated_at === "string";
+const validTurnId = (v) => Number.isSafeInteger(v) && v > 0;
+const validRate = (d) => isObj(d) && d.ok === true;
 const validOutbox = (d) => Array.isArray(d) && d.every(isObj);
 
 // ---- Operations -------------------------------------------------------------------------------------------------
@@ -149,7 +155,9 @@ function renderControlsState() {
   els.input.disabled = off;
   els.apply.disabled = off;
   els.reloadScripts.disabled = busy;
+  if (adminEls) adminEls.button.disabled = off;
   els.form.setAttribute("aria-busy", busy ? "true" : "false");
+  for (const b of els.transcript.querySelectorAll("button[data-rating]")) b.disabled = busy;
 }
 
 // ---- Transcript -------------------------------------------------------------------------------------------------
@@ -160,13 +168,55 @@ function addBubble(who, text, extra) {
   return b;
 }
 
+// Thumbs under one agent reply: the rating goes to the server with an optional comment, and the latest rating wins.
+// A turn with no id of its own (the server did not give one) gets no thumbs.
+function addThumbs(bubble, turn) {
+  if (!turn || !validTurnId(turn.turn_id)) return;
+  const bar = el("div", "thumbs");
+  const note = el("span", "muted", turn.rating === 1 ? RATED_UP_LINE : turn.rating === -1 ? RATED_DOWN_LINE : "");
+  note.setAttribute("role", "status");
+  const comment = el("input", "thumbs-comment");
+  comment.type = "text";
+  comment.maxLength = 1000;
+  comment.setAttribute("aria-label", "Optional comment on this reply");
+  comment.placeholder = "Optional comment";
+  for (const [value, label, shown] of [[1, "Helpful reply", "\u{1F44D}"], [-1, "Not helpful reply", "\u{1F44E}"]]) {
+    const b = el("button", "plain", shown);
+    b.type = "button";
+    b.setAttribute("data-rating", String(value));
+    b.setAttribute("aria-label", label);
+    b.addEventListener("click", () => rateTurn(turn, value, comment.value, note));
+    bar.appendChild(b);
+  }
+  bar.appendChild(comment);
+  bar.appendChild(note);
+  bubble.appendChild(bar);
+}
+
+async function rateTurn(turn, rating, comment, note) {
+  if (app.op) return;
+  await run("rate", async (tok) => {
+    const body = { rating };
+    const text = comment.trim();
+    if (text) body.comment = text;
+    const r = await api("POST", "/api/turns/" + encodeURIComponent(String(turn.turn_id)) + "/feedback", body, tok.ctl.signal);
+    if (!current(tok)) return;
+    if (ok(r) && validRate(r.data)) {
+      turn.rating = rating;
+      note.textContent = rating === 1 ? RATED_UP_LINE : RATED_DOWN_LINE;
+    } else {
+      note.textContent = ok(r) ? RATE_FAILED_LINE : errorText(r);
+    }
+  });
+}
+
 // A rebuild (restore or new conversation) is silent: the live region is marked busy while it is filled.
 function rebuildTranscript() {
   els.transcript.setAttribute("aria-busy", "true");
   els.transcript.textContent = "";
   for (const t of app.turns) {
     if (t.message !== null) addBubble("caller", t.message);
-    if (t.reply !== null) addBubble("agent", t.reply);
+    if (t.reply !== null) addThumbs(addBubble("agent", t.reply), t);
   }
   els.transcript.setAttribute("aria-busy", "false");
 }
@@ -357,6 +407,58 @@ async function loadMeta(tok) {
   els.loadReport.textContent = "";
   renderValue(els.loadReport, r.data.load_report, 0, "No load problems reported.");
   showMetaState();
+  if (r.data.admin === true) showAdminControl();
+}
+
+// ---- Demo control: change a claim of the verified customer (built only when the server says it is on) ------------
+let adminEls = null;
+function showAdminControl() {
+  if (adminEls) return;
+  const box = el("fieldset", "controls");
+  box.appendChild(el("legend", "", "Change a claim (demo only)"));
+  const field = (label, type) => {
+    const id = "admin-" + label.toLowerCase().replace(/[^a-z]+/g, "-");
+    const lab = el("label", "", label);
+    lab.htmlFor = id;
+    const input = type === "textarea" ? el("textarea") : el("input");
+    if (type !== "textarea") input.type = type;
+    input.id = id;
+    box.appendChild(lab);
+    box.appendChild(input);
+    return input;
+  };
+  const claim = field("Claim number", "text");
+  const status = field("New status", "text");
+  const deadline = field("New appeal deadline", "date");
+  const documents = field("Documents needed (one per line)", "textarea");
+  const button = el("button", "", "Change claim");
+  button.type = "button";
+  const note = el("p", "muted", "");
+  note.setAttribute("role", "status");
+  box.appendChild(button);
+  box.appendChild(note);
+  els.picker.parentNode.insertBefore(box, els.picker);
+  adminEls = { button, note };
+  button.addEventListener("click", async () => {
+    if (app.op || isEnded() || !app.cid) return;
+    const body = {};
+    if (status.value.trim()) body.status = status.value.trim();
+    if (deadline.value) body.appeal_deadline = deadline.value;
+    const names = documents.value.split("\n").map((n) => n.trim()).filter((n) => n);
+    if (names.length) body.documents_needed = names;
+    const number = claim.value.trim();
+    if (!number) { note.textContent = "Enter a claim number."; return; }
+    if (!Object.keys(body).length) { note.textContent = "Enter at least one change."; return; }
+    await run("claim", async (tok) => {
+      note.textContent = "";
+      const r = await api("PATCH", "/api/admin/claims/" + encodeURIComponent(app.cid) + "/" + encodeURIComponent(number), body, tok.ctl.signal);
+      if (!current(tok)) return;
+      if (!ok(r)) note.textContent = errorText(r);
+      else if (!validClaimChange(r.data)) note.textContent = UNEXPECTED_LINE;
+      else note.textContent = "Claim changed. The next reply will use it.";
+    });
+  });
+  renderControlsState();
 }
 
 function controlsBody() {
@@ -405,9 +507,10 @@ async function sendMessage() {
       if (ok(r) && validSend(r.data)) {
         waiting.remove();
         app.drafts.delete(cid);
-        app.turns.push({ turn_no: before + 1, message: text, reply: r.data.reply, state_after: r.data.state, inspector: r.data.inspector });
+        app.turns.push({ turn_no: before + 1, message: text, reply: r.data.reply, state_after: r.data.state, inspector: r.data.inspector,
+          turn_id: validTurnId(r.data.turn_id) ? r.data.turn_id : null });
         app.selected = app.turns.length - 1;
-        addBubble("agent", r.data.reply);
+        addThumbs(addBubble("agent", r.data.reply), app.turns[app.selected]);
         renderPicker(); renderBody();
         applyState(r.data.state);
         refreshOutbox();

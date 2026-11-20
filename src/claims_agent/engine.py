@@ -23,6 +23,7 @@ from uuid import UUID
 from psycopg import AsyncConnection
 
 from claims_agent.answers.facts import ANSWERS, COMPARE_CLAIMS, available
+from claims_agent.budget import TurnBudget
 from claims_agent.db import conversations as store
 from claims_agent.db.claims import (Claim, as_listed, customer_vocabulary, fetch_ids, filter_from_form,
                                     filter_to_dict)
@@ -34,9 +35,11 @@ from claims_agent.form.fields import Form, ListedClaim, StatedValues
 from claims_agent.form.filler import Extractor, FormFiller
 from claims_agent.form.questions import RECENT_WINDOW, FormRequest
 from claims_agent.form.read import picked, yes
+from claims_agent.form.settle import Settler
 from claims_agent.inspect import inspector_payload, mask_ids
 from claims_agent.loader.read import FALLBACK_TOPIC
 from claims_agent.memory import Memory
+from claims_agent.observability import NoLog, TurnLog, needs_review, safe_finish, safe_start
 from claims_agent.models.errors import (ModelAccountProblem, ModelError, ModelKeyRejected, ModelNotPermitted,
                                         ModelRequestRejected, ModelUnavailable)
 from claims_agent.reply.brief import ReplyBrief, ReplyPart
@@ -44,6 +47,7 @@ from claims_agent.reply.compose import compose
 from claims_agent.reply.wording import Wording
 from claims_agent.rules.every_message import PERSON_OFFER, global_outcome, usable
 from claims_agent.rules.handover import handover_note, note
+from claims_agent.rules.mood import caller_mood, frustrated_again
 from claims_agent.rules.progress import apply_stall, made_progress
 from claims_agent.settings import Settings, Thresholds
 from claims_agent.states import State
@@ -98,6 +102,8 @@ class Deps:
     filler: FormFiller
     extractor: Extractor
     wording: Wording
+    turn_log: TurnLog = field(default_factory=NoLog)
+    settler: Settler | None = None  # the larger model, for unsure picks
 
 
 @dataclass
@@ -111,6 +117,8 @@ class TurnContext:
     deps: Deps
     today: date
     entered_by_hop: bool
+    request: FormRequest | None = None  # this turn's form request, as the fast model was asked it
+    budget: TurnBudget = field(default_factory=TurnBudget)  # the turn's own: every step shares it
 
 
 @dataclass
@@ -138,6 +146,7 @@ class TurnResult:
     reply: str
     state: State
     inspector: dict
+    span_id: str | None = None
 
 
 Step = Callable[[TurnContext], Awaitable[StepOutcome]]
@@ -156,13 +165,22 @@ STEPS: dict[State, Step] = {s: _not_built for s in (State.VERIFY_ID, State.AWAIT
 # ---- the turn ---------------------------------------------------------------------------------------------------
 
 async def run_turn(deps: Deps, conversation_id: UUID, message: str) -> TurnResult:
+    """One turn. Its trace is sent only after the turn's transaction has committed, and never changes the outcome."""
+    result = await _run_turn(deps, conversation_id, message)
+    safe_finish(deps.turn_log, result.span_id, message=message, reply=result.reply, record=result.inspector,
+                tags=(("needs_review",) if needs_review(result.inspector, deps.thresholds) else ()))
+    return result
+
+
+async def _run_turn(deps: Deps, conversation_id: UUID, message: str) -> TurnResult:
     async with deps.db.conversation(conversation_id) as conn:
         conv, memory = await store.load_for_turn(conn, conversation_id)  # the row stays locked until commit
         memory.counters.turn_no += 1
         start_conv, start_memory = replace(conv), memory.model_copy(deep=True)
+        span_id = safe_start(deps.turn_log, conversation_id, memory.counters.turn_no)
         try:
             async with conn.transaction():  # a savepoint: a failure below undoes everything after step 1
-                return await _turn(deps, conn, conv, memory, message)
+                return await _turn(deps, conn, conv, memory, message, span_id)
         except RERAISE:
             raise
         except ModelRequestRejected:  # before ModelUnavailable: it is one, but it will repeat until the code is fixed
@@ -175,7 +193,7 @@ async def run_turn(deps: Deps, conversation_id: UUID, message: str) -> TurnResul
             logger.exception("turn handed over: unexpected error inside the turn")
             reason = "internal_error"
         try:
-            return await _failed(deps, conn, start_conv, start_memory, message, reason)
+            return await _failed(deps, conn, start_conv, start_memory, message, reason, span_id)
         except Exception:
             logger.exception("the turn's hand-over could not be recorded; the whole turn is rolled back")
         # Raised outside the handler, so it carries no context: the transaction rolls back as it leaves this block.
@@ -185,8 +203,10 @@ async def run_turn(deps: Deps, conversation_id: UUID, message: str) -> TurnResul
 class _Turn:
     """What one turn has gathered so far."""
 
-    def __init__(self, deps: Deps, conn: AsyncConnection, conv: Conversation, memory: Memory, message: str):
+    def __init__(self, deps: Deps, conn: AsyncConnection, conv: Conversation, memory: Memory, message: str,
+                 span_id: str | None = None):
         self.deps, self.conn, self.conv, self.memory = deps, conn, conv, memory
+        self.span_id = span_id
         self.whole = message
         cap = deps.settings.limits.message_chars
         self.message = message[:cap]
@@ -199,11 +219,15 @@ class _Turn:
         self.note: dict | None = None
         self.freedom_state: State | None = conv.state if conv.state.value in deps.settings.states else None
         self.today = conv.today or deps.settings.today.date
+        self.request: FormRequest | None = None
+        self.budget = TurnBudget()
+        self.part_progress = False  # a part of a message split into questions moved things forward
 
 
-async def _turn(deps: Deps, conn: AsyncConnection, conv: Conversation, memory: Memory, message: str) -> TurnResult:
+async def _turn(deps: Deps, conn: AsyncConnection, conv: Conversation, memory: Memory, message: str,
+                span_id: str | None = None) -> TurnResult:
     t, s = deps.thresholds, deps.settings
-    turn = _Turn(deps, conn, conv, memory, message)
+    turn = _Turn(deps, conn, conv, memory, message, span_id)
     state_before = conv.state
     before = memory.model_copy(deep=True)
     pending_at_start = memory.pending
@@ -231,11 +255,15 @@ async def _turn(deps: Deps, conn: AsyncConnection, conv: Conversation, memory: M
     pick = picked(turn.form.pending_reply, t) if turn.form is not None else None
     if conv.state not in FINAL:
         reasons = made_progress(before, memory, state_before, conv.state, turn.grounded, pending_reply=pick)
-        stall = apply_stall(memory.counters, bool(reasons), state_before, conv.state, s.limits.stalled_turns)
+        stall = apply_stall(memory.counters, bool(reasons) or turn.part_progress, state_before, conv.state, s.limits.stalled_turns)
         memory.counters.stalled_in_a_row = stall.stalled_in_a_row
-        if stall.offer_person and not any(_offers_person(p) for p in turn.parts):
+        # An upset caller asked again with nothing moving gets a person offered as the other way on, without waiting
+        # for the stall limit; the offer resets the stall count like any other.
+        upset = turn.form is not None and frustrated_again(memory.counters.mood_by_turn, bool(reasons))
+        if (stall.offer_person or upset) and not any(_offers_person(p) for p in turn.parts):
             turn.parts.append(ReplyPart("offer_person", plain=PLAIN["offer_person"], pending=PERSON_OFFER))
-            turn.fired.append({"rule": "stall_limit"})
+            turn.fired.append({"rule": "stall_limit" if stall.offer_person else "frustrated_again"})
+            memory.counters.stalled_in_a_row = 0
     _settle_pending(turn, pick)
     return await _finish(turn, state_before)
 
@@ -247,10 +275,11 @@ async def _read_and_act(turn: _Turn) -> None:
     verified = conv.verified_party_id is not None
 
     req = await _form_request(turn, verified)
+    turn.request = req
     turn.form, turn.stated = await _fill(deps, req, turn.message, verified)
     form = turn.form
     _save_hints(memory, form, turn.stated, t)
-    mood = picked(form.mood, t)
+    mood = caller_mood(form.mood, t)
     memory.counters.mood_by_turn.append(mood or "unclear")
 
     outcome = global_outcome(form, verified=verified, pending=memory.pending, t=t)
@@ -275,7 +304,8 @@ async def _read_and_act(turn: _Turn) -> None:
         conv.state = State.POST_PROCESS
         hop = True
 
-    await _run_steps(turn, hop)
+    if not await question_parts.answer_each_part(turn, outcome):  # a message asking several things, part by part
+        await _run_steps(turn, hop)
     if conv.state not in FINAL:
         if not turn.parts and conv.state != State.DONE:
             # Backstop: no open turn ends unanswered. The open need question is RESOLVE_INTENT's to ask; this only
@@ -326,7 +356,7 @@ async def guidance(deps: Deps, conn: AsyncConnection) -> Guidance:
 
 def _context(turn: _Turn, entered_by_hop: bool) -> TurnContext:
     return TurnContext(turn.conn, turn.conv, turn.memory, turn.message, turn.form, turn.stated, turn.deps, turn.today,
-                       entered_by_hop)
+                       entered_by_hop, request=turn.request, budget=turn.budget)
 
 
 async def _hand_over(turn: _Turn, handover: tuple[str, str]) -> None:
@@ -388,12 +418,13 @@ async def _finish(turn: _Turn, state_before: State, *, fixed: bool = False) -> T
     rows = await _turns_since(conn, conv.id, memory.counters.context_floor)
     brief = ReplyBrief(
         state=conv.state, parts=tuple(turn.parts),
-        mood=(picked(form.mood, t) if form is not None else None) or "calm",
+        mood=(caller_mood(form.mood, t) if form is not None else None) or "calm",
         caller_message=turn.message, previous_reply=_previous_reply(s, turn.freedom_state, rows),
         english=yes(form.english, t) if form is not None else True,
         verified=conv.verified_party_id is not None,
         caller_claim_numbers=(turn.stated.claim_number.strip(),) if (turn.stated.claim_number or "").strip() else ())
-    composed = await compose(brief, deps.wording, s, await _vocabulary(conn, "status"), fixed=fixed)
+    composed = await compose(brief, deps.wording, s, await _vocabulary(conn, "status"), fixed=fixed,
+                           budget=turn.budget)
     if composed.source == "last_resort" and conv.state not in FINAL:
         memory.pending = PERSON_OFFER  # the last-resort line offers a person: a "yes" must hand over
         memory.counters.stalled_in_a_row = 0  # Ruling 20: offering a person resets the stall count
@@ -408,15 +439,15 @@ async def _finish(turn: _Turn, state_before: State, *, fixed: bool = False) -> T
                 "consent_checks": memory.consent.checks_used},
         claims_visible=await _claims_visible(conn), outbox=await _outbox(conn, conv.id), handover_note=turn.note)
     turn_id = await store.append_turn(conn, conv.id, memory.counters.turn_no, turn.whole, composed.text,
-                                      state_before.value, conv.state.value, payload)
+                                      state_before.value, conv.state.value, payload, turn.span_id)
     await store.save(conn, conv, memory)
-    return TurnResult(turn_id, composed.text, conv.state, payload)
+    return TurnResult(turn_id, composed.text, conv.state, payload, turn.span_id)
 
 
 async def _failed(deps: Deps, conn: AsyncConnection, conv: Conversation, memory: Memory, message: str,
-                  reason: str) -> TurnResult:
+                  reason: str, span_id: str | None = None) -> TurnResult:
     """The turn was rolled back to where it started (after step 1); hand over with a fixed line, no model call."""
-    turn = _Turn(deps, conn, conv, memory, message)
+    turn = _Turn(deps, conn, conv, memory, message, span_id)
     state_before = conv.state
     turn.note = note(conv, memory, turn.message, reason)
     await store.add_escalation(conn, conv.id, memory.counters.turn_no, "failure", reason, turn.note)
@@ -522,9 +553,12 @@ def _rank(e: BaseException) -> int:
 
 async def _fill(deps: Deps, req: FormRequest, message: str, verified: bool) -> tuple[Form, StatedValues]:
     """The form, and the stated values: before verification the extractor runs alongside the filler; after it, only
-    when the caller quoted a claim number."""
+    when the caller quoted a claim number or the message asks more than one thing (it then also splits it)."""
     if verified:
         form = await deps.filler.fill(req)
+        if yes(form.multi_question, deps.thresholds):  # one call also splits the message into its questions
+            return form, await deps.extractor.extract(message, want_identity=False, want_claim_number=yes(
+                form.quoted_claim_number, deps.thresholds), want_parts=True)
         if yes(form.quoted_claim_number, deps.thresholds):
             return form, await deps.extractor.extract(message, want_identity=False, want_claim_number=True)
         return form, StatedValues()
@@ -581,3 +615,4 @@ import claims_agent.rules.await_consent  # noqa: E402,F401  registers AWAIT_CONS
 import claims_agent.rules.resolve_intent  # noqa: E402,F401  registers RESOLVE_INTENT's step in STEPS
 import claims_agent.rules.process_case  # noqa: E402,F401  registers PROCESS_CASE's step in STEPS
 import claims_agent.rules.post_process  # noqa: E402,F401  registers POST_PROCESS's step in STEPS
+from claims_agent import question_parts  # noqa: E402  the loop over the questions of one message

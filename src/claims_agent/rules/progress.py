@@ -18,7 +18,7 @@ def made_progress(before: Memory, after: Memory, state_before: State, state_afte
     held_a = {k: v.key for k, v in after.identity.held.items()}
     if any(held_b.get(k) != v for k, v in held_a.items()):
         reasons.append("identity value added or changed")
-    if any(getattr(before.hints, f) != getattr(after.hints, f)
+    if any(_hint(before, f) != _hint(after, f)
            for f in ("claim_filter", "claim_number", "need", "wants_email")
            if getattr(after.hints, f) not in (None, False)):
         reasons.append("hint added or changed")
@@ -55,3 +55,12 @@ def apply_stall(counters: Counters, progressed: bool, state_before: State, state
     if count >= limit:
         return StallResult(0, True)
     return StallResult(count, False)
+
+
+def _hint(memory: Memory, name: str):
+    """A hint as progress compares it: a claim description without the model's certainty about it, so describing the
+    same claim again with other certainty is not progress."""
+    value = getattr(memory.hints, name)
+    if name == "claim_filter" and isinstance(value, dict):
+        return {k: v for k, v in value.items() if k != "sureness"}
+    return value

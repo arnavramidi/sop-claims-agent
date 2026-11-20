@@ -35,6 +35,7 @@ class StatedValues(BaseModel):
     id_digits: str | None = None
     policy_number: str | None = None
     claim_number: str | None = None
+    question_parts: list[str] = Field(default_factory=list)  # each question the message asks, when asked for
 
 
 class Form(BaseModel):
