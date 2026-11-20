@@ -1,0 +1,28 @@
+{
+  "default": {
+    "status_sequence": [
+      "pending",
+      "approved"
+    ]
+  },
+  "timeout": {
+    "status_sequence": [
+      "pending",
+      "pending",
+      "pending",
+      "pending",
+      "pending"
+    ]
+  },
+  "bad\u0000name": {
+    "status_sequence": [
+      "pending"
+    ]
+  },
+  "badseq": {
+    "status_sequence": [
+      "pending",
+      "a\u0000"
+    ]
+  }
+}

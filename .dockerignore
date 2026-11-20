@@ -1,0 +1,17 @@
+# Secrets and local env files
+.env
+.env.*
+!.env.example
+# Git history
+.git
+.gitignore
+# Docs, caches, tests (tests are mounted by the tests service); scripts/ and evals/ stay in the image
+docs
+tests
+__pycache__
+**/__pycache__
+*.pyc
+.pytest_cache
+.venv
+*.egg-info
+.DS_Store

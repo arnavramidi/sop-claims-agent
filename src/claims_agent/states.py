@@ -1,0 +1,12 @@
+from enum import StrEnum
+
+
+class State(StrEnum):
+    VERIFY_ID = "VERIFY_ID"
+    AWAIT_CONSENT = "AWAIT_CONSENT"
+    RESOLVE_INTENT = "RESOLVE_INTENT"
+    PROCESS_CASE = "PROCESS_CASE"
+    POST_PROCESS = "POST_PROCESS"
+    DONE = "DONE"
+    ESCALATED = "ESCALATED"
+    CLOSED = "CLOSED"

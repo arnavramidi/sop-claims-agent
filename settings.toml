@@ -1,0 +1,101 @@
+[limits]
+stalled_turns = 3
+wrong_values = 3
+consent_checks = 5
+claims_in_focus = 5
+claims_prepared = 3
+unclear_email_replies = 2
+model_retries = 1
+model_timeout_seconds = 20
+# The longest part of one caller message any model request carries; the stored message is always whole.
+message_chars = 4000
+# The most outstanding documents (of the claims in focus, in each claim's own order) offered to the form as choices.
+documents_offered = 25
+
+[today]
+date = 2026-03-05
+
+[data]
+folder = "data/starter"
+reset_on_start = true
+
+[models]
+fast = "gpt-6-luna"
+text = "gpt-6.1-sol"
+larger = "gpt-6-astra"
+# Output caps count reasoning tokens too (a cut-off reply is a failed call). 25000 is the docs' starting point; tune it down
+# once real token use is known. Low reasoning effort and low verbosity keep thinking short and the reply brief.
+wording_max_output_tokens = 25000
+wording_reasoning_effort = "low"
+wording_verbosity = "low"
+extractor_max_output_tokens = 10000
+extractor_reasoning_effort = "low"
+
+[claims]
+in_progress_statuses = ["open"]
+
+[reply_check]
+wary_status_words = ["approved", "pending", "rejected", "accepted", "processing", "under review"]
+max_length = 1500
+
+# Whole-word forms checked for each wary word (no stemming: "process" and "processing time" are fine).
+[reply_check.status_forms]
+approved = ["approved", "approve", "approves", "approval"]
+pending = ["pending"]
+rejected = ["rejected", "reject", "rejects", "rejection"]
+accepted = ["accepted", "accept", "accepts", "acceptance"]
+processing = ["processing", "processed"]
+"under review" = ["under review"]
+
+[prepared_replies]
+enabled = false
+
+[freedom.strict]
+claim_facts = false
+settle_unsure = false
+prepared_replies = false
+
+[freedom.free]
+claim_facts = true
+settle_unsure = true
+prepared_replies = true
+
+[freedom.guided]
+claim_facts = true
+settle_unsure = false
+prepared_replies = false
+
+[states.VERIFY_ID]
+freedom = "strict"
+[states.AWAIT_CONSENT]
+freedom = "strict"
+[states.RESOLVE_INTENT]
+freedom = "free"
+[states.PROCESS_CASE]
+freedom = "free"
+[states.POST_PROCESS]
+freedom = "guided"
+
+[needs.denial_question]
+opens_with = ["status", "denial_reason", "documents_needed", "appeal_deadline"]
+[needs.document_submission]
+opens_with = ["documents_needed", "appeal_deadline"]
+[needs.next_steps]
+opens_with = ["next_steps"]
+[needs.status_inquiry]
+opens_with = ["status"]
+opens_with_when_denied = ["status", "denial_reason", "documents_needed"]
+[needs.general_claim_question]
+opens_with = ["status"]
+
+[followups]
+order = []
+comes_after = {}
+
+[followups.special.submission_timing]
+with_deadline = true
+drop_when_deadline_passed = true
+[followups.special.file_format_requirements]
+documents_as_requirements = true
+[followups.special.missing_required_material_alternatives]
+per_document_alternatives = true

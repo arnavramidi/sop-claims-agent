@@ -1,0 +1,72 @@
+x-app: &app
+  build:
+    context: .
+  volumes:
+    - ./settings.toml:/app/settings.toml:ro
+    - ./thresholds.toml:/app/thresholds.toml:ro
+
+services:
+  db:
+    image: postgres:17
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: claims
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d claims"]
+      interval: 2s
+      timeout: 3s
+      retries: 30
+
+  setup:
+    <<: *app
+    command: python -m claims_agent.setup
+    environment:
+      SUPERUSER_DATABASE_URL: postgresql://postgres:${POSTGRES_PASSWORD}@db:5432/claims
+      LOADER_DATABASE_URL: postgresql://claims_loader:${LOADER_PASSWORD}@db:5432/claims
+      OWNER_PASSWORD: ${OWNER_PASSWORD}
+      LOADER_PASSWORD: ${LOADER_PASSWORD}
+      APP_PASSWORD: ${APP_PASSWORD}
+      SETTINGS_FILE: /app/settings.toml
+    depends_on:
+      db:
+        condition: service_healthy
+    restart: "no"
+
+  server:
+    <<: *app
+    command: uvicorn claims_agent.api:create_app --factory --host 0.0.0.0 --port 8000
+    environment:
+      DATABASE_URL: postgresql://claims_app:${APP_PASSWORD}@db:5432/claims
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      BRAINTRUST_API_KEY: ${BRAINTRUST_API_KEY:-}
+      SETTINGS_FILE: /app/settings.toml
+    depends_on:
+      setup:
+        condition: service_completed_successfully
+    ports:
+      - "8000:8000"
+
+  tests:
+    profiles: ["test"]
+    build:
+      context: .
+      args:
+        EXTRAS: "[dev]"
+    working_dir: /app
+    volumes:
+      - .:/app
+    environment:
+      SUPERUSER_DATABASE_URL: postgresql://postgres:${POSTGRES_PASSWORD}@db:5432/claims_test
+      OWNER_DATABASE_URL: postgresql://claims_owner:${OWNER_PASSWORD}@db:5432/claims_test
+      LOADER_DATABASE_URL: postgresql://claims_loader:${LOADER_PASSWORD}@db:5432/claims_test
+      DATABASE_URL: postgresql://claims_app:${APP_PASSWORD}@db:5432/claims_test
+      OWNER_PASSWORD: ${OWNER_PASSWORD}
+      LOADER_PASSWORD: ${LOADER_PASSWORD}
+      APP_PASSWORD: ${APP_PASSWORD}
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      BRAINTRUST_API_KEY: ${BRAINTRUST_API_KEY:-}
+      SETTINGS_FILE: /app/settings.toml
+    depends_on:
+      db:
+        condition: service_healthy

@@ -1,0 +1,103 @@
+[
+  {
+    "party_id": "P9",
+    "name": "Margaret Chen",
+    "policy_number": "POL-9921",
+    "dob": "1985-03-15",
+    "id_type": "ssn_last4",
+    "id_last4": "4472",
+    "phone": "+16505212836",
+    "email": "margaret@email.com"
+  },
+  {
+    "party_id": "P7",
+    "name": "Ava Lopez",
+    "policy_number": "POL-1044",
+    "dob": "1990-08-21",
+    "id_type": "ssn_last4",
+    "id_last4": "9180",
+    "phone": "+16503882920",
+    "email": "ava.lopez@email.com"
+  },
+  {
+    "party_id": "P12",
+    "name": "Ma Tian",
+    "policy_number": "POL-8836",
+    "dob": "1964-09-10",
+    "id_type": "national_id_last4",
+    "id_last4": "6688",
+    "phone": "+16502088799",
+    "email": "matian@example.com"
+  },
+  {
+    "party_id": "P13",
+    "name": "Ya Wen Li",
+    "name_aliases": [
+      "Yaven Li"
+    ],
+    "policy_number": "POL-7742",
+    "dob": "1989-12-03",
+    "id_type": "national_id_last4",
+    "id_last4": "5317",
+    "phone": "+16505212830",
+    "phone_aliases": [
+      "+16505212830"
+    ],
+    "email": "yawen.li@gmail.com",
+    "email_aliases": [
+      "yawen.li@example.com"
+    ]
+  },
+  {
+    "party_id": "H1",
+    "name": "Hana Okafor",
+    "policy_number": "POL-H1",
+    "dob": "1991-04-04",
+    "id_type": "ssn\u0000",
+    "id_last4": "7311",
+    "phone": "+1 650-521-2836",
+    "email": "hana@example.com",
+    "phone_aliases": [
+      "SECRET-PHONE-99",
+      "(650) 521-2830"
+    ],
+    "email_aliases": [
+      "secret-alias-not-email"
+    ],
+    "name_aliases": [
+      77,
+      "Hana O"
+    ]
+  },
+  {
+    "party_id": "H2",
+    "name": "Nul\u0000Name",
+    "policy_number": "POL-H2"
+  },
+  {
+    "party_id": "H3",
+    "name": "Lone \ud800 Surrogate",
+    "policy_number": "POL-H3"
+  },
+  {
+    "party_id": "H4",
+    "name": "Hugo Park",
+    "policy_number": "POL-H4",
+    "dob": "1990-02-30",
+    "id_last4": "88X1",
+    "phone": "SECRET-PHONE-77",
+    "email": "secret-bad-email"
+  },
+  {
+    "party_id": "H5\u0000",
+    "name": "Bad Id"
+  },
+  {
+    "party_id": "H6",
+    "name": "Ines Vega",
+    "policy_number": "POL-H6",
+    "id_last4": "\u0664\u0664\u0664\u0664",
+    "phone": "+\u0661\u0662\u0663\u0664\u0665\u0666\u0667\u0668\u0669\u0660\u0661",
+    "email": "ines@example.com"
+  }
+]

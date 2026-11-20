@@ -1,0 +1,62 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="light">
+<title>Claims agent</title>
+<link rel="stylesheet" href="/styles.css">
+</head>
+<body>
+<div id="banner" class="banner" role="alert" hidden></div>
+<p id="needs-script" class="banner">This page needs its script to run. It did not load, so nothing can be sent. Reload the page, or check that the server is running.</p>
+<noscript><p class="banner">This page needs JavaScript to run. Turn it on, then reload.</p></noscript>
+<main class="layout">
+  <section class="chat" aria-label="Conversation">
+    <h1>Claims agent</h1>
+    <div id="transcript" class="transcript" role="log" aria-live="polite" aria-label="Transcript"></div>
+    <div id="ended" class="ended">
+      <p id="ended-text" role="status"></p>
+      <button type="button" id="new-conversation" hidden>Start a new conversation</button>
+    </div>
+    <div id="no-conversation" class="ended" hidden>
+      <p>There is no open conversation, so nothing can be sent.</p>
+      <button type="button" id="retry">Try again</button>
+    </div>
+    <p id="draft-note" class="muted" role="status"></p>
+    <form id="composer" class="composer" method="post" action="about:blank" autocomplete="off">
+      <label for="message">Your message</label>
+      <div class="row">
+        <input id="message" type="text" maxlength="4000" required>
+        <button type="submit" id="send">Send</button>
+      </div>
+    </form>
+  </section>
+  <aside class="inspector" aria-label="Operator view">
+    <h2>Operator view: a caller would never see this panel</h2>
+    <p class="muted">What the code and each model decided on the latest turn. Pick a turn to inspect it.</p>
+    <ul class="legend" aria-label="Who decided">
+      <li><span class="tag tag-code">Code</span></li>
+      <li><span class="tag tag-fast">Fast model</span></li>
+      <li><span class="tag tag-text">Text model</span></li>
+      <li><span class="tag tag-large">Larger model</span></li>
+    </ul>
+    <fieldset class="controls">
+      <legend>Controls</legend>
+      <p id="controls-note" class="muted">Current settings: unknown</p>
+      <label for="consent-script">Consent script</label>
+      <select id="consent-script"><option value="">unknown</option></select>
+      <div id="meta-problem" hidden><span id="meta-text" role="status"></span> <button type="button" id="reload-scripts" class="plain">Reload list</button></div>
+      <label for="today">Today's date</label>
+      <input id="today" type="date">
+      <button type="button" id="apply-controls">Apply</button>
+    </fieldset>
+    <div id="turn-picker" class="turn-picker"></div>
+    <div id="inspector-body"></div>
+    <details class="static"><summary>Load report</summary><div id="load-report"></div></details>
+    <details class="static"><summary>Simulated outbox</summary><div id="outbox"></div></details>
+  </aside>
+</main>
+<script src="/app.js"></script>
+</body>
+</html>

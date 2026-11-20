@@ -1,0 +1,12 @@
+[
+  {
+    "party_id": "M-100",
+    "name": "Noor Haddad",
+    "policy_number": "POL-A1",
+    "dob": "1980-05-05",
+    "id_type": "ssn_last4",
+    "id_last4": "1234",
+    "phone": "+16505550100",
+    "email": "noor@example.com"
+  }
+]

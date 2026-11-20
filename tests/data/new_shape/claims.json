@@ -1,0 +1,10 @@
+[
+  {
+    "case_id": "TRV/77-A",
+    "party_id": "M-100",
+    "case_type": "travel",
+    "created_at": "2026-02-01",
+    "status": "under_review",
+    "summary": "Travel claim under review"
+  }
+]
