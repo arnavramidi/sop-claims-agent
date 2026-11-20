@@ -64,7 +64,7 @@ about a claim until the database has verified the caller.
 
 | State | What happens | Freedom |
 |---|---|---|
-| `VERIFY_ID` | The caller must give at least three of: full name, date of birth, policy number, phone, last four ID digits. The database does the matching. Three wrong values hand over to a person. | Strict: fixed facts only, nothing about any claim. |
+| `VERIFY_ID` | At least three of these five must match one customer: full name, date of birth, phone, email, last four ID digits. A policy number helps find the policy but does not count toward the three. The database does the matching. Three wrong values hand over to a person. | Strict: fixed facts only, nothing about any claim. |
 | `AWAIT_CONSENT` | Someone calling for a policyholder waits here until the policyholder's consent is recorded. | Strict. |
 | `RESOLVE_INTENT` | Works out which claim the caller means (type, status, month, year, a claim number, or a pick from a short list) and what they need. | Free: the models interpret messy language; code turns it into a filter. |
 | `PROCESS_CASE` | Answers from the claim's own row and the guidance data, offers one follow-up at a time, gives alternatives when a document can't be obtained, and hands over when the alternatives run out. | Guided: answers are built by code; wording is free. |
