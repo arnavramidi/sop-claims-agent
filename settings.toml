@@ -11,6 +11,14 @@ model_timeout_seconds = 20
 message_chars = 4000
 # The most outstanding documents (of the claims in focus, in each claim's own order) offered to the form as choices.
 documents_offered = 25
+# What one turn's event records may hold: the longest body of one event (in characters of its JSON) and the most
+# events one turn writes. Longer text is cut and further events are dropped, so a long message or a big form cannot
+# grow the table without bound.
+event_body_chars = 6000
+events_per_turn = 40
+# The most follow-up replies worded ahead in the background after one turn (when prepared replies are on), spread
+# over at most claims_prepared claims in focus.
+replies_prepared = 4
 
 [today]
 date = 2026-03-05
@@ -52,6 +60,17 @@ enabled = false
 
 [braintrust]
 project = "sop-claims-agent"
+
+# Example caller phrasings a person approved: the file, plus the Braintrust dataset when a key is set (read once at
+# start, waiting at most remote_timeout_seconds). Each is short ordinary text; at most per_option per option and
+# total in all.
+[examples]
+path = "evals/approved_examples.json"
+dataset = "approved-examples"
+per_option = 5
+total = 100
+message_chars = 120
+remote_timeout_seconds = 5
 
 [freedom.strict]
 claim_facts = false
@@ -102,3 +121,11 @@ drop_when_deadline_passed = true
 documents_as_requirements = true
 [followups.special.missing_required_material_alternatives]
 per_document_alternatives = true
+
+# Hosted mode only (HOSTED=1): each visitor brings their own model key. The longest key accepted, and how many
+# conversations and messages one visitor address may start or send per minute.
+[hosted]
+max_key_chars = 512
+conversations_per_minute = 10
+messages_per_minute = 30
+tracked_addresses = 10000

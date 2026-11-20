@@ -214,3 +214,22 @@ def test_the_which_document_question_can_say_a_document_was_named_that_is_not_on
     assert values == ["pathology report", "office note", "all", "not_listed", "none_stated"]
     described = dict(qs["which_document"].choices)
     assert described["not_listed"] != described["none_stated"] and "not" in described["not_listed"]
+
+
+def test_a_representative_is_asked_whether_they_moved_to_another_person():
+    from claims_agent.form.questions import FormRequest, build_questions
+    names = lambda req: {q.name for q in build_questions(req)}  # noqa: E731
+    assert "other_than_represented" in names(FormRequest(message="hi", acting_for_policyholder=True))
+    assert "other_than_represented" not in names(FormRequest(message="hi"))
+
+
+def test_each_figure_question_points_at_its_meaning_in_the_data_record():
+    from claims_agent.form.questions import FormRequest, build_questions
+    req = FormRequest(message="hi", verified=True, figure_meanings={"net_pay": "The finalized amount the insurer paid."})
+    q = next(q for q in build_questions(req) if q.name == "figure:net_pay")
+    assert "money_figures" in q.instructions and "The finalized amount the insurer paid." not in q.instructions
+
+
+def test_a_list_of_claims_is_worded_with_every_detail_that_tells_them_apart():
+    from claims_agent.reply.instructions import INSTRUCTIONS
+    assert "every detail" in INSTRUCTIONS["which_claim"] and "every detail" in INSTRUCTIONS["nearest_matches"]

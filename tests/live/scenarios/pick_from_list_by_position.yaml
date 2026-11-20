@@ -1,0 +1,19 @@
+id: pick_from_list_by_position
+about: After a list of claims, "the newer one" and "the first one" pick the right claim.
+group: resolving
+turns:
+  - say: "Hi, this is Margaret Chen. My date of birth is 1985-03-15 and the last four of my SSN are 4472."
+    expect:
+      verified: P9
+  - say: "I have a question about my healthcare claim from January."
+    expect:
+      instructions: [which_claim]
+  - say: "The newer one."
+    expect:
+      focus: [CL-2048]
+  - say: "Thanks. Now, what about my claims from last year?"
+    expect:
+      instructions: [which_claim]
+  - say: "The first one."
+    expect:
+      focus_listed: 1

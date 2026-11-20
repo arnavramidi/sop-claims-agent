@@ -10,8 +10,8 @@ T = load_thresholds()
 
 # ---- the brief's tests ----------------------------------------------------------------------------------------
 
-def test_an_unsure_answer_includes_the_value():
-    f = filter_from_form(make_form(claim_types={"healthcare": 0.4, "dental": 0.2}), T); assert f.types == {"healthcare"}
+def test_an_unsure_answer_does_not_include_the_value():
+    f = filter_from_form(make_form(claim_types={"healthcare": 0.4, "dental": 0.2}), T); assert f.types == frozenset()
 
 
 def test_no_year_said_means_all_years():
@@ -48,8 +48,8 @@ def test_m4_a_new_search_does_not_combine_with_the_old():
 # ---- added ------------------------------------------------------------------------------------------------------
 
 def test_sureness_is_the_lowest_p_among_the_values_included():
-    f = filter_from_form(make_form(claim_types={"healthcare": 0.9, "dental": 0.5, "auto": 0.1}, years={2025: 0.7}), T)
-    assert f.sureness == {"types": 0.5, "years": 0.7}
+    f = filter_from_form(make_form(claim_types={"healthcare": 0.9, "dental": 0.7, "auto": 0.1}, years={2025: 0.7}), T)
+    assert f.sureness == {"types": 0.7, "years": 0.7}
 
 
 def test_a_year_said_is_a_condition_and_a_relative_time_is_kept():

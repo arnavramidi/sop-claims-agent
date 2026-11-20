@@ -1,0 +1,14 @@
+id: one_claim_in_the_month_described
+about: '"My tooth, the ER visit in August" when only one claim is from August: the agent names that claim with its type and gives its status from the record, and asserts nothing more.'
+group: resolving
+dataset: august_single
+turns:
+  - say: "Hi, this is Dana Whitfield, born 1983-11-30, and the last four of my SSN are 9042."
+    expect:
+      verified: P50
+  - say: "It's about my tooth, I ended up in the ER in August."
+    expect:
+      focus: [CL-6001]
+      instructions: [found_claim]
+      reply_has: ["CL-6001", "dental", "closed"]
+      reply_lacks: ["emergency", "\\bER\\b", "tooth"]

@@ -1,0 +1,9 @@
+id: chinese_message_with_details
+about: A Chinese message with identity details; the details count, and the reply is English with one Chinese line saying a person is available.
+group: language
+turns:
+  - say: "你好，我是Margaret Chen，我的出生日期是1985年3月15日，社保号码后四位是4472。"
+    expect:
+      verified: P9
+      instructions: [offer_person_in_language]
+      judge: "The agent's last reply is written in English except for one added line in Chinese that tells the caller they can ask for a person."

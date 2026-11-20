@@ -1,0 +1,41 @@
+# A hosted demo: one Docker web service in hosted mode (each visitor enters their own model key; the server has
+# none) and one Postgres database. No value in this file is a secret: the database's own address is referenced, and
+# the three database accounts' passwords are generated when the blueprint is first applied.
+#
+# Before each deploy the setup command rebuilds the database and loads the bundled sample data; hosted mode refuses
+# to start on any other data. The server then runs with its own database account only (see
+# src/claims_agent/hosted_start.py). A pre-deploy command needs a paid instance type.
+services:
+  - type: web
+    name: sop-claims-agent
+    runtime: docker
+    dockerfilePath: ./Dockerfile
+    plan: 0.5c-512mb
+    healthCheckPath: /health
+    preDeployCommand: python -m claims_agent.hosted_start setup
+    dockerCommand: python -m claims_agent.hosted_start serve
+    autoDeployTrigger: "off"
+    envVars:
+      - key: HOSTED
+        value: "1"
+      # Traffic reaches the service through Cloudflare, which writes the visitor's address into this header
+      # (a visitor cannot set it); the rate limits count each visitor by it.
+      - key: CLIENT_ADDRESS_HEADER
+        value: CF-Connecting-IP
+      - key: SUPERUSER_DATABASE_URL
+        fromDatabase:
+          name: sop-claims-agent-db
+          property: connectionString
+      - key: OWNER_PASSWORD
+        generateValue: true
+      - key: LOADER_PASSWORD
+        generateValue: true
+      - key: APP_PASSWORD
+        generateValue: true
+
+databases:
+  - name: sop-claims-agent-db
+    databaseName: claims
+    postgresMajorVersion: "17"
+    plan: 0.1c-256mb
+    ipAllowList: []  # reachable from the private network only

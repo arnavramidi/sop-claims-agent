@@ -1,0 +1,16 @@
+id: mood_changes_and_back
+about: A caller who is calm, then upset, then calm again; both changes are recorded and the tone of each reply follows the mood.
+group: blocked
+turns:
+  - say: "I'm the policyholder. My name is Margaret Chen, policy POL-9921. I'm calling about my denied healthcare claim from January. DOB is 1985-03-15, SSN last four is 4472."
+    expect:
+      verified: P9
+      mood: [calm]
+  - say: "This is ridiculous! I sent everything months ago and now you're telling me it's missing? I'm furious."
+    expect:
+      mood: [upset, angry]
+  - say: "OK, sorry, I calmed down. Thanks for explaining. When is the appeal deadline again?"
+    expect:
+      mood: [calm]
+      reply_has: ["2026-03-18|March 18"]
+      judge: "The agent's second reply acknowledges the caller's frustration, and its third reply simply answers without an acknowledgement of upset feelings."

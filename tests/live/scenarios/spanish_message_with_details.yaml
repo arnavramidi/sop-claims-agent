@@ -1,0 +1,9 @@
+id: spanish_message_with_details
+about: A Spanish message with identity details; the details count, and the reply is English with one Spanish line saying a person is available.
+group: language
+turns:
+  - say: "Hola, soy Margaret Chen. Mi fecha de nacimiento es el 15 de marzo de 1985 y los últimos cuatro dígitos de mi seguro social son 4472."
+    expect:
+      verified: P9
+      instructions: [offer_person_in_language]
+      judge: "The agent's last reply is written in English except for one added line in Spanish that tells the caller they can ask for a person."

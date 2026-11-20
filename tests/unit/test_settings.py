@@ -46,7 +46,7 @@ def test_followup_special_behaviour_is_settings_not_code():
 def test_thresholds_are_placeholders_until_calibrated():
     t = load_thresholds()
     assert (t.yes, t.unsure_low, t.unsure_high, t.pick_confident) == (0.5, 0.35, 0.65, 0.6)
-    assert (t.filter_include_min, t.send_email_min, t.prepared_reply_min) == (0.35, 0.8, 0.8)
+    assert (t.send_email_min, t.prepared_reply_min) == (0.8, 0.8)
 
 
 def test_model_ids_are_pinned():

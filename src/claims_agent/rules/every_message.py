@@ -16,9 +16,13 @@ from claims_agent.memory import Pending
 from claims_agent.reply.brief import ReplyPart
 from claims_agent.settings import Thresholds
 
-Terminal = Literal["handover", "reset_identity", "wrap_up", "close"]
+Terminal = Literal["handover", "reset_identity", "wrap_up", "close", "confirm_policyholder"]
 
 PERSON_OFFER = Pending(kind="offer_person", label="speak to a person?", yes_no=True)
+# Asked of a representative when it is unclear whether the message is still about the policyholder they act for.
+SAME_POLICYHOLDER = Pending(kind="same_policyholder", label="still the same policyholder?", yes_no=True)
+ASK_SAME_POLICYHOLDER = ReplyPart("ask_same_policyholder", plain="Is this still about the policyholder you're calling for?",
+                                  pending=SAME_POLICYHOLDER)
 
 
 @dataclass(frozen=True)
@@ -54,14 +58,25 @@ def _count(message: str) -> int:
     return count
 
 
-def global_outcome(form: Form, *, verified: bool, pending: Pending | None, t: Thresholds) -> GlobalOutcome:
+def global_outcome(form: Form, *, verified: bool, pending: Pending | None, t: Thresholds,
+                   acting_for_policyholder: bool = False, names_someone_else: bool = False,
+                   maybe_someone_else: bool = False) -> GlobalOutcome:
+    """A different person resets the conversation. For a caller acting for the policyholder, "someone else's policy"
+    is that policyholder's, so it takes a different policyholder named in the message (see rules/other_person.py).
+    When that is unclear, the representative is asked whether it is still the same policyholder, and nothing else is
+    done that turn (no claim is told about the wrong person); a clear "no" to that question resets."""
     offer_pending = pending is not None and pending.kind == "offer_person"
     reply = picked(form.pending_reply, t) if offer_pending else None
     accepted = reply == "yes"  # a confident pick (pick_confident); below it is no answer and nothing is added
     if confident_yes(form.wants_person, t) or accepted:
         return GlobalOutcome("handover", ())
-    if confident_yes(form.other_person_policy, t):
+    if confident_yes(form.other_person_policy, t) and (not acting_for_policyholder or names_someone_else):
         return GlobalOutcome("reset_identity", ())
+    same_asked = pending is not None and pending.kind == SAME_POLICYHOLDER.kind
+    if same_asked and picked(form.pending_reply, t) == "no":
+        return GlobalOutcome("reset_identity", ())
+    if acting_for_policyholder and maybe_someone_else and not same_asked:
+        return GlobalOutcome("confirm_policyholder", (ASK_SAME_POLICYHOLDER,))
     if confident_yes(form.done, t):
         return GlobalOutcome("wrap_up" if verified else "close", ())
 

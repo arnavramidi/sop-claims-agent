@@ -27,16 +27,22 @@ def next_followup(need: str, claim: Claim, answered: Collection[str], g: Guidanc
     """The next follow-up for the need: those linked to it that exist for the claim and are not answered, in
     the settings' order (names the data lacks are ignored) then the data's order, skipping one whose
     `comes_after` topic is still waiting to be answered. A cycle of waits is ignored rather than offering nothing."""
-    by_topic = {f.topic: f for f in g.followups}
-    ranked = [by_topic[t] for t in s.followups.order if t in by_topic]
-    ranked += [f for f in g.followups if f not in ranked]
-    left = [f for f in ranked if need in f.needs and exists_for(f, claim, g, s) and f.topic not in answered]
+    left = followup_candidates(need, claim, answered, g, s)
     waiting = {f.topic for f in left}
     after = _after(s)
     for f in left:
         if not any(t in waiting for t in after.get(f.topic, ())):
             return f
     return left[0] if left else None
+
+
+def followup_candidates(need: str, claim: Claim, answered: Collection[str], g: Guidance, s: Settings) -> list[FollowupRow]:
+    """The follow-ups linked to the need that exist for the claim and are not answered, in the settings' order
+    (names the data lacks are ignored) then the data's order."""
+    by_topic = {f.topic: f for f in g.followups}
+    ranked = [by_topic[t] for t in s.followups.order if t in by_topic]
+    ranked += [f for f in g.followups if f not in ranked]
+    return [f for f in ranked if need in f.needs and exists_for(f, claim, g, s) and f.topic not in answered]
 
 
 def _not_available(claim: Claim) -> AnswerResult:

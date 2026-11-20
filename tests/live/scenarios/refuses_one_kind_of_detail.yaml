@@ -1,0 +1,17 @@
+id: refuses_one_kind_of_detail
+about: A caller refuses to give their SSN; the agent offers the other kinds of detail instead of a dead end, and the caller verifies with a phone number.
+group: identity
+turns:
+  - say: "Hi, Margaret Chen here, born 1985-03-15."
+    expect:
+      verified: none
+      held_kinds: [name, dob]
+  - say: "I'm not giving you my social security number. No way."
+    expect:
+      state: VERIFY_ID
+      handed_over: false
+      reply_has: ["phone|email"]
+      judge: "The agent's last reply offers other kinds of identifying detail the caller could give instead of the one they refused, so the caller is not left at a dead end."
+  - say: "Fine. My phone number is 650-521-2836."
+    expect:
+      verified: P9

@@ -1,0 +1,17 @@
+id: auto_claim_nothing_outstanding
+about: An auto claim with nothing outstanding; the caller is never told to send photos or an estimate.
+group: processing
+turns:
+  - say: "Hi, this is Margaret Chen. My date of birth is 1985-03-15 and the last four of my SSN are 4472."
+    expect:
+      verified: P9
+  - say: "What's going on with my auto claim? Do I need to send you anything?"
+    expect:
+      focus: [CL-2102]
+      reply_has: ["CL-2102"]
+      reply_lacks: ["photo", "estimate", "pathology", "office note"]
+      check_passed: true
+  - say: "OK. And how long will it take?"
+    expect:
+      reply_lacks: ["photo", "estimate"]
+      check_passed: true

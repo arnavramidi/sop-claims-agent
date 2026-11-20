@@ -7,7 +7,7 @@ from claims_agent.loader.read import MONEY_FIELDS
 from claims_agent.form.read import PickAnswer, Refused, YesNoAnswer
 from claims_agent.states import State
 
-# What a caller can ask code to work out (Ruling 22). Kept here so the form needs nothing from the answers package.
+# What a caller can ask code to work out. Kept here so the form needs nothing from the answers package.
 CALCULATIONS = ("none", "total", "difference", "highest", "lowest", "count", "days_open", "days_left")
 
 RECENT_WINDOW = 6  # how many earlier caller messages a request carries (and asks a question about)
@@ -17,6 +17,67 @@ MONTH_NAMES = ["January", "February", "March", "April", "May", "June", "July",
 
 # A month or year inside a date of birth describes the caller, never a claim.
 NOT_A_CLAIM_DATE = "A date of birth is not the time of a claim."
+
+# A caller who simply gives their own name or another detail is identifying the policyholder unless they say they
+# are calling for someone else; without this a bare "my name is ..." reads as no detail at all.
+OWN_DETAILS_COUNT = ("A caller stating their own name, date of birth, phone number, email address, ID digits or "
+                     "policy number counts, unless they say they are calling for someone else.")
+
+# A representative always asks about someone else's policy; only a move to a different person's policy is a switch.
+NOT_A_SWITCH = ("Answer yes only when the caller moves to a policy of a different person from the one this conversation "
+                "has been about so far. A caller acting for a policyholder they have named (for example a parent) and "
+                "asking about that same person's policy is not asking about someone else.")
+
+# Asked only of a caller acting for a policyholder: that policyholder's policy is never another person's.
+REPRESENTED_IS_NOT_OTHER = ("Asking about the policyholder the caller is acting for (by name, as \"her\" or \"him\", "
+                            "or by the relationship given before) is not a different person.")
+
+# What "unsupported" covers: requests about insurance that this claims line does not handle.
+UNSUPPORTED_MEANS = ("unsupported_insurance means an insurance request this claims line cannot handle, such as opening "
+                     "or filing a new claim, coverage or benefits questions, billing or payments, or changing contact or "
+                     "policy details.")
+
+# "Between March and June" names April and May too.
+MONTH_IN_A_RANGE = "A month inside a range the caller gives counts (April is in \"between March and June\")."
+
+# A claim in focus counts as listed: describing a different claim from the one being discussed is a new search.
+BEING_DISCUSSED = ("The claims the agent is already discussing count as listed: a message that describes a different "
+                   "claim from those is a new search.")
+
+# A time counted from today, each described: "early this year" is this year, not a question of how recent.
+RELATIVE_TIMES = (
+    ("none", "no time counted from today"),
+    ("most_recent", "the newest claim"),
+    ("oldest", "the oldest claim"),
+    ("this_year", "claims made this year, including early in it or so far this year"),
+    ("last_year", "claims made last year"),
+)
+
+# The search relation's choices, each described, so "no list shown" is not picked while a claim is being discussed.
+SEARCH_RELATIONS = (
+    ("narrowing", "picks out some of the claims already listed or being discussed"),
+    ("correcting", "corrects how the caller described a claim before"),
+    ("new_search", "describes a different claim from those listed or being discussed"),
+    ("no_list_shown", "no claim has been listed or discussed yet"),
+)
+
+# A question about one's own claim is not a request to read out what is held about the caller.
+PERSONAL_DETAIL_MEANS = ("A personal detail is something held about the caller, such as their email address, phone "
+                         "number, date of birth or ID number; a question about a claim is not one.")
+
+# Each type is its own answer: naming "dental" says nothing about "healthcare".
+ONE_TYPE_AT_A_TIME = "Answer for this type alone: a different type the caller names does not count for it."
+
+# A figure's meaning comes from a data file, so it travels in the data record (figure_meanings, keyed by the figure's
+# name in words), never in a question; the question only points at its entry.
+# Each figure is its own answer: a caller describing what was paid is not asking about the most that could be paid.
+ONE_FIGURE_AT_A_TIME = ("Answer for this figure alone: yes only when the caller's words name it or describe what it "
+                        "means; a different figure the caller describes does not count for it.")
+
+# A claim's type or status counts only when the caller says it: the agent's earlier reply naming a claim is not the
+# caller describing one, and a message that names no claim at all describes none.
+CALLERS_OWN_WORDS = ("Count only what the caller's own words in this message say, not the agent's earlier reply; "
+                     "answer no when the caller names none.")
 
 
 @dataclass(frozen=True)
@@ -44,6 +105,8 @@ class FormRequest:
     listed_claims: tuple[ListedClaim, ...] = ()
     documents: tuple[str, ...] = ()
     examples: Mapping[str, tuple[str, ...]] = field(default_factory=dict)
+    acting_for_policyholder: bool = False  # the caller has said they act for the policyholder
+    figure_meanings: Mapping[str, str] = field(default_factory=dict)  # money field -> glossary meaning: data, sent in the record
 
     def __post_init__(self) -> None:
         if not self.verified and (self.listed_claims or self.documents):
@@ -83,7 +146,7 @@ def build_questions(req: FormRequest) -> list[Question]:
     c = lambda name, text, values: _choice(req, name, text, _plain(values))  # noqa: E731
     qs: list[Question] = [
         _yn("wants_person", "Does the caller ask to speak to a person?"),
-        c("about", "What is the caller's message about?",
+        c("about", "What is the caller's message about? " + UNSUPPORTED_MEANS,
           ["claim_or_account", "unsupported_insurance", "off_topic", "conversation"]),
         _yn("skips_step", "Does the caller want to skip the step they were just asked for?"),
         _yn("asks_why_step", "Does the caller ask why the agent needs what it just asked for?"),
@@ -93,7 +156,8 @@ def build_questions(req: FormRequest) -> list[Question]:
           ["yes", "no", "unclear", "not_answering", "nothing_pending"]),
         _yn("done", "Is the caller finished and ready to end the conversation?"),
         _yn("english", "Is the caller's message written in English?"),
-        _yn("other_person_policy", "Is the caller asking about a policy that belongs to someone else?"),
+        _yn("other_person_policy", "Is the caller asking about a policy that belongs to someone else? "
+            + NOT_A_SWITCH),
         _yn("wants_email_summary", "Does the caller ask for a summary by email?"),
     ]
     qs += [_yn(f"shaped_need:{i}", f"Earlier caller message number {i} is in the data record. Did that message help "
@@ -103,12 +167,17 @@ def build_questions(req: FormRequest) -> list[Question]:
         qs += [
             c("caller_role", "Who is the caller in relation to the policy?",
               ["policyholder", "third_party", "not_stated"]),
-            _yn("gave_identity_detail", "Does the message state a detail that identifies the policyholder?"),
+            _yn("gave_identity_detail", "Does the message state a detail that identifies the policyholder? "
+                + OWN_DETAILS_COUNT),
             _yn("correcting_detail", "Is the caller correcting a detail they gave earlier?"),
             _yn("partial_detail", "Does the caller give only part of a detail, such as some digits?"),
             c("relationship", "How does the caller say they are related to the policyholder?",
               list(req.relationships) + ["other", "not_stated"]),
         ]
+    if req.acting_for_policyholder:
+        qs.append(_yn("other_than_represented", "The caller is acting for a policyholder. Does the caller now ask about "
+                      "the policy of a different person from that policyholder (for example another relative)? "
+                      + REPRESENTED_IS_NOT_OTHER))
     if req.state == State.AWAIT_CONSENT:
         qs.append(_yn("consent_recheck", "Is the caller asking to check the consent answer again, or saying the policyholder has approved it?"))
     qs += [
@@ -117,19 +186,22 @@ def build_questions(req: FormRequest) -> list[Question]:
         c("how_many", "How many claims does the caller mean?",
           ["one", "several", "all", "none", "same_as_before"]),
     ]
-    qs += [_yn(f"claim_type:{v}", f"Does the caller mean a claim of type {v}?") for v in dict.fromkeys(req.claim_types)]
-    qs += [_yn(f"claim_status:{v}", f"Does the caller mean a claim whose status is {v}?")
+    qs += [_yn(f"claim_type:{v}", f"Does the caller mean a claim of type {v}? {ONE_TYPE_AT_A_TIME} {CALLERS_OWN_WORDS}")
+           for v in dict.fromkeys(req.claim_types)]
+    qs += [_yn(f"claim_status:{v}", f"Does the caller mean a claim whose status is {v}? {CALLERS_OWN_WORDS}")
            for v in dict.fromkeys(req.claim_statuses)]
-    qs += [_yn(f"month:{m}", f"Does the caller mention {MONTH_NAMES[m - 1]} as the time of a claim? {NOT_A_CLAIM_DATE}")
+    qs += [_yn(f"month:{m}", f"Does the caller mention {MONTH_NAMES[m - 1]} as the time of a claim? {NOT_A_CLAIM_DATE} "
+                             f"{MONTH_IN_A_RANGE} {CALLERS_OWN_WORDS}")
            for m in range(1, 13)]
-    qs += [_yn(f"year:{y}", f"Does the caller mention the year {y} as the time of a claim? {NOT_A_CLAIM_DATE}")
+    qs += [_yn(f"year:{y}", f"Does the caller mention the year {y} as the time of a claim? {NOT_A_CLAIM_DATE} "
+                            f"{CALLERS_OWN_WORDS}")
            for y in dict.fromkeys(req.years)]
     qs += [
         _yn("no_year_said", "Does the caller mention a month or date without saying a year?"),
-        c("relative_time", "Does the caller describe a claim by how recent it is?",
-          ["none", "most_recent", "oldest", "this_year", "last_year"]),
-        c("search_relation", "How does this message relate to the claims already listed?",
-          ["narrowing", "correcting", "new_search", "no_list_shown"]),
+        _choice(req, "relative_time", "Does the caller describe a claim by when it was made, counted from today?",
+                list(RELATIVE_TIMES)),
+        _choice(req, "search_relation", "How does this message relate to the claims already listed? " + BEING_DISCUSSED,
+                list(SEARCH_RELATIONS)),
     ]
     if req.listed_claims:
         qs.append(_choice(req, "listed_claim", "Which listed claim does the caller point at?",
@@ -151,12 +223,16 @@ def build_questions(req: FormRequest) -> list[Question]:
     if req.verified:
         qs.append(c("calculation", "Does the caller ask for a total, a difference, the highest or lowest, a count or a "
                     "number of days to be worked out?", list(CALCULATIONS)))
-        qs += [_yn(f"figure:{m}", f"Is the caller asking about the {m.replace('_', ' ')} figure?") for m in MONEY_FIELDS]
+        qs += [_yn(f"figure:{m}", f"The data record's money_figures lists each money figure with what it means on "
+                   f"file. Is the caller asking about the figure named \"{m.replace('_', ' ')}\" there, by its name "
+                   f"or by describing what it means? " + ONE_FIGURE_AT_A_TIME)
+               for m in MONEY_FIELDS]
         qs.append(_yn("no_figure_said", "Does the caller ask for a total, difference, highest or lowest without "
                       "saying which money figure?"))
     qs += [
         _yn("cant_get_document", "Does the caller say they cannot get a required document?"),
-        _yn("asks_personal_detail", "Does the caller ask the agent to tell them a personal detail?"),
+        _yn("asks_personal_detail", "Does the caller ask the agent to tell them a personal detail? "
+            + PERSONAL_DETAIL_MEANS),
     ]
     if req.state == State.POST_PROCESS:
         qs.append(c("email_offer_reply", "How does the caller answer the offer of an email summary?",
@@ -220,4 +296,11 @@ def form_from_answers(req: FormRequest, answers: Mapping[str, YesNoAnswer | Pick
         asks_personal_detail=yn("asks_personal_detail"), email_offer_reply=opt_pick("email_offer_reply"),
         calculation=unasked_pick("calculation"), figures={m: unasked_yn(f"figure:{m}") for m in MONEY_FIELDS},
         no_figure_said=unasked_yn("no_figure_said"),
+        other_than_represented=opt_yn("other_than_represented"),
     )
+
+
+def figure_meanings(req: FormRequest) -> list[dict[str, str]]:
+    """The money figures for the data record: each one's name in words, as the questions name it, and its glossary
+    meaning (data from a file, so it travels here and never in a question)."""
+    return [{"name": m.replace("_", " "), "meaning": text} for m, text in req.figure_meanings.items() if text]

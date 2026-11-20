@@ -1,0 +1,10 @@
+id: details_with_a_weather_question
+about: '"DOB is ..., ID ends ..., also what''s the weather in Tokyo?": the details are used, the weather is declined, and the turn is not stalled.'
+group: blocked
+turns:
+  - say: "DOB is 1985-03-15, ID ends 4472, also what's the weather in Tokyo?"
+    expect:
+      verified: none
+      held_kinds: [dob, id]
+      stalled: 0
+      reply_lacks: ["sunny", "rain", "cloud", "degrees", "°", "forecast is"]

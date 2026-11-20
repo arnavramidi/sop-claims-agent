@@ -1,0 +1,13 @@
+id: reason_documents_and_how_to_send
+about: The denial reason, the documents needed and how to send them, asked in one message, are all answered.
+group: processing
+turns:
+  - say: "Hi, this is Margaret Chen. My date of birth is 1985-03-15 and the last four of my SSN are 4472."
+    expect:
+      verified: P9
+  - say: "For my denied healthcare claim: why was it denied, what documents do you need, and how do I send them?"
+    expect:
+      focus: [CL-2048]
+      answers: [denial_reason, documents_needed, submission_method]
+      reply_has: ["pathology", "portal|upload"]
+      check_passed: true

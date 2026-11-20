@@ -1,0 +1,14 @@
+id: one_document_claim
+about: A claim that needs a single document gets a reply in correct English for one document, with the facts unchanged.
+group: processing
+turns:
+  - say: "This is Ma Tian, born 1964-09-10, and my ID ends in 6688."
+    expect:
+      verified: P12
+  - say: "What documents do you need from me?"
+    expect:
+      focus: [CL-3001]
+      reply_has: ["diagnosis report"]
+      reply_source: [live, rewrite]
+      check_passed: true
+      judge: "The agent's last reply is correct, natural English for a claim that needs exactly one document: it treats the diagnosis report as a single item (for example 'the diagnosis report is needed'), with no plural wording such as 'these documents are' or '1 documents' for it."

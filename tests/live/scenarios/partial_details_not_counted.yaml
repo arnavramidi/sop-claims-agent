@@ -1,0 +1,11 @@
+id: partial_details_not_counted
+about: A first name only, a birth year only and an area code only are not counted, and the caller is asked for the whole values.
+group: identity
+turns:
+  - say: "My first name is Margaret, I was born in 1985, and my phone area code is 650."
+    expect:
+      verified: none
+      held_kinds: []
+      wrong_values: 0
+      instructions: [ask_full_value]
+      reply_has: ["(full|whole|complete|entire)"]

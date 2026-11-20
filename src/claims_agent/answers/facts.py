@@ -278,3 +278,16 @@ def build(answer: str, claims: Sequence[Claim], g: Guidance, s: Settings, today:
         facts += got
         offer = offer or wants_person
     return AnswerResult(tuple(facts), grounded=answer != "not_on_file", offer_person=offer)
+
+
+# What each answer a caller can ask for gives, as the form's choices describe it: an answer named only by its key
+# ("amounts") leaves the fast model guessing that it also says what each figure means.
+ANSWER_MEANS = {
+    "status": "the claim's status",
+    "denial_reason": "why the claim was denied",
+    "documents_needed": "which documents are still needed",
+    "appeal_deadline": "the appeal deadline and how many days are left",
+    "amounts": "the claim's money figures, and what each figure (expected, allowed, net pay, net fee) means",
+    "next_steps": "what the caller should do next",
+    COMPARE_CLAIMS: "how the claims being discussed compare",
+}

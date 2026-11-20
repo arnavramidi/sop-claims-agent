@@ -1,0 +1,19 @@
+id: upset_caller_before_verification
+about: The assignment's angry caller, not yet verified, is acknowledged, told why verification comes first and offered the ways to verify, with nothing disclosed.
+group: blocked
+dataset: starter
+today: 2026-03-05
+consent_script: default
+turns:
+  - say: "I already told you who I am. This is ridiculous. Just tell me why my claim was denied."
+    expect:
+      state: VERIFY_ID
+      verified: none
+      handed_over: false
+      claims_visible: 0
+      mood: [upset, angry]
+      reply_source: [live, rewrite]
+      check_passed: true
+      reply_lacks: ["denied (because|due to)", "pathology", "office note", "CL-\\d"]
+      no_claim_data_before_verification: true
+      judge: "The agent's reply acknowledges the caller's frustration, explains that claim details are protected and need identity verification first, and offers the caller the ways to verify (which kinds of detail they can give)."

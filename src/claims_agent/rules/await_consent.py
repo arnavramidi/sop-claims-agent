@@ -55,6 +55,7 @@ async def step(ctx: TurnContext) -> StepOutcome:
     consent.checks_used += 1
     consent.last_status = status
     fired.append({"rule": "check_consent", "status": status, "checks_used": consent.checks_used})
+    ctx.record("consent_check", number=consent.checks_used, script=ctx.conversation.consent_script, result=status)
 
     if status == "approved":
         # The database binds the customer itself; the reply may say "verified" only if it really did.

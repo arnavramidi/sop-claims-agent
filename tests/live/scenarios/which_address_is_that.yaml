@@ -1,0 +1,16 @@
+id: which_address_is_that
+about: '"Which address is that?" during the email offer: the address is not read out.'
+group: wrapup
+turns:
+  - say: "I'm the policyholder. My name is Margaret Chen, policy POL-9921. I'm calling about my denied healthcare claim from January. DOB is 1985-03-15, SSN last four is 4472."
+    expect:
+      verified: P9
+  - say: "No, that's everything, thanks."
+    expect:
+      state: POST_PROCESS
+      instructions: [offer_email]
+  - say: "Which address is that?"
+    expect:
+      outbox_count: 0
+      instructions: [email_address_not_read_out]
+      reply_lacks: ["@", "margaret", "email\\.com", "\\*\\*"]

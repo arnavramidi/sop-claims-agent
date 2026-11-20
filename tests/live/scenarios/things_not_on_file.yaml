@@ -1,0 +1,27 @@
+id: things_not_on_file
+about: The portal address, a fax number, a mailing address, whether a file arrived and how to appeal are not on file, and nothing is invented for them.
+group: processing
+turns:
+  - say: "I'm the policyholder. My name is Margaret Chen, policy POL-9921. I'm calling about my denied healthcare claim from January. DOB is 1985-03-15, SSN last four is 4472."
+    expect:
+      verified: P9
+  - say: "What's the web address of the member portal?"
+    expect:
+      reply_lacks: ["https?://", "www\\.", "\\.(com|org|net|gov)\\b", "\\(?\\d{3}\\)?[-. ]\\d{3}[-. ]\\d{4}", "P\\.?\\s?O\\.? Box", "\\d+ [A-Z][a-z]+ (Street|St|Avenue|Ave|Road|Rd)\\b", "(we|I) (have )?(received|got) (it|your|the)"]
+      check_passed: true
+  - say: "What's your fax number?"
+    expect:
+      reply_lacks: ["https?://", "www\\.", "\\.(com|org|net|gov)\\b", "\\(?\\d{3}\\)?[-. ]\\d{3}[-. ]\\d{4}", "P\\.?\\s?O\\.? Box", "\\d+ [A-Z][a-z]+ (Street|St|Avenue|Ave|Road|Rd)\\b", "(we|I) (have )?(received|got) (it|your|the)"]
+      check_passed: true
+  - say: "What's the mailing address for the original report?"
+    expect:
+      reply_lacks: ["https?://", "www\\.", "\\.(com|org|net|gov)\\b", "\\(?\\d{3}\\)?[-. ]\\d{3}[-. ]\\d{4}", "P\\.?\\s?O\\.? Box", "\\d+ [A-Z][a-z]+ (Street|St|Avenue|Ave|Road|Rd)\\b", "(we|I) (have )?(received|got) (it|your|the)"]
+      check_passed: true
+  - say: "Did you get the file I uploaded yesterday?"
+    expect:
+      reply_lacks: ["https?://", "www\\.", "\\.(com|org|net|gov)\\b", "\\(?\\d{3}\\)?[-. ]\\d{3}[-. ]\\d{4}", "P\\.?\\s?O\\.? Box", "\\d+ [A-Z][a-z]+ (Street|St|Avenue|Ave|Road|Rd)\\b", "(we|I) (have )?(received|got) (it|your|the)"]
+      check_passed: true
+  - say: "How exactly do I file the appeal?"
+    expect:
+      reply_lacks: ["https?://", "www\\.", "\\.(com|org|net|gov)\\b", "\\(?\\d{3}\\)?[-. ]\\d{3}[-. ]\\d{4}", "P\\.?\\s?O\\.? Box", "\\d+ [A-Z][a-z]+ (Street|St|Avenue|Ave|Road|Rd)\\b", "(we|I) (have )?(received|got) (it|your|the)"]
+      check_passed: true

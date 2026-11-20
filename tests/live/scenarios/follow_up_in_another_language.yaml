@@ -1,0 +1,14 @@
+id: follow_up_in_another_language
+about: A Spanish follow-up after verification is answered in English from the facts, with nothing translated from the guidance, plus one Spanish line saying a person is available.
+group: language
+turns:
+  - say: "I'm the policyholder. My name is Margaret Chen, policy POL-9921. I'm calling about my denied healthcare claim from January. DOB is 1985-03-15, SSN last four is 4472."
+    expect:
+      verified: P9
+      focus: [CL-2048]
+  - say: "¿Cuándo es la fecha límite para la apelación?"
+    expect:
+      reply_has: ["2026-03-18|March 18"]
+      instructions: [offer_person_in_language]
+      check_passed: true
+      judge: "The agent's last reply answers the deadline question in English, and its only non-English text is one line in Spanish telling the caller they can ask for a person."

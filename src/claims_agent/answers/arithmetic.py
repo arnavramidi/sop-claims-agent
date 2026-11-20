@@ -10,7 +10,7 @@ from collections.abc import Sequence
 from datetime import date
 from decimal import Decimal
 
-from claims_agent.db.claims import Aggregate, Claim, aggregate
+from claims_agent.db.claims import TOP_SIZE, Aggregate, Claim, aggregate
 from claims_agent.db.guidance import Guidance
 from claims_agent.form.questions import CALCULATIONS
 from claims_agent.loader.read import MONEY_FIELDS
@@ -49,10 +49,14 @@ def _total(figure: str, agg: Aggregate) -> list[Fact]:
     expected = "expected " if figure == "expected_reimbursement_amount" else ""
     facts = [Fact("total", f"Total {expected}{label} across {_plural(covered, 'claim')}: {agg.total:.2f}.{note}")]
     if figure == "net_pay":
-        facts += [Fact("total", f"Claim {c} net pay: not paid yet (counted as 0.00).", c) for c in agg.not_paid_yet]
+        facts += [Fact("total", f"Claim {c} net pay: not paid yet (counted as 0.00).", c)
+                  for c in agg.not_paid_yet[:TOP_SIZE]]
+        if len(agg.not_paid_yet) > TOP_SIZE:  # a long list is counted, never listed in full
+            facts.append(Fact("total", f"Claims not paid yet (counted as 0.00), {len(agg.not_paid_yet)} in all; "
+                                       f"the first {TOP_SIZE} are named above."))
     if agg.missing:
         facts.append(Fact("total", f"Claims with no {label} on file, left out of the total: {len(agg.missing)}."))
-        facts += [Fact("total", f"Claim {c} {label}: unavailable (not on file).", c) for c in agg.missing]
+        facts += [Fact("total", f"Claim {c} {label}: unavailable (not on file).", c) for c in agg.missing[:TOP_SIZE]]
     return facts
 
 
@@ -70,7 +74,9 @@ def _ranked(calc: str, figure: str, agg: Aggregate) -> list[Fact]:
         facts.append(Fact("ranking", f"Ranked by {label}, {calc} first: "
                                      + ", ".join(f"{c} {v:.2f}" for c, v in agg.top) + "."))
     if agg.missing:
-        facts.append(Fact("ranking", f"Claims with no {label} on file, left out: " + ", ".join(agg.missing) + "."))
+        more = f", and {len(agg.missing) - TOP_SIZE} more" if len(agg.missing) > TOP_SIZE else ""
+        facts.append(Fact("ranking", f"Claims with no {label} on file, left out: "
+                                     + ", ".join(agg.missing[:TOP_SIZE]) + more + "."))
     return facts
 
 

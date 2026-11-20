@@ -327,7 +327,7 @@ async def test_the_turn_record_is_the_inspector_payload_with_masked_values(deps,
     r = await say(deps, conv, "my id is 123454472", make_form(**GAVE), stated(id_digits="123454472"))
     assert set(r.inspector) == {"state_before", "state_after", "freedom", "filler", "form", "stated", "flags", "fired",
                                 "parts", "reply_source", "checks", "memory", "counts", "claims_visible", "outbox",
-                                "handover_note"}
+                                "handover_note", "events"}
     assert set(r.inspector["counts"]) == {"stalled", "wrong_values", "consent_checks"}
     record = await turn_record(deps, r.turn_id)
     assert record == json.loads(json.dumps(r.inspector))
@@ -490,9 +490,11 @@ async def test_the_policy_number_breaks_a_tie_at_three(shared_deps):
     assert r.state != State.ESCALATED and await verified_party(shared_deps, cid) == "P9"
 
 
-async def test_a_claim_hint_read_below_the_yes_line_is_kept_as_the_filter_reads_it(deps, conv):
+async def test_a_claim_hint_is_kept_as_the_filter_reads_it(deps, conv):
     t = deps.thresholds
-    p = (t.filter_include_min + t.yes) / 2  # above the filter's cut-off, below "yes"
+    await say(deps, conv, "about my claim", make_form(mentions_claim=True, claim_types={"dental": (t.unsure_low + t.yes) / 2}))
+    assert await memory(deps, conv, "hints.claim_filter") is None  # an unsure reading is not a description
+    p = (t.unsure_high + 1) / 2  # a sure reading, below 1
     await say(deps, conv, "about my dental claim", make_form(mentions_claim=True, claim_types={"dental": p}))
     hint = await memory(deps, conv, "hints.claim_filter")
     assert hint["types"] == ["dental"] and hint["sureness"]["types"] == p

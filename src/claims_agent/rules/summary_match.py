@@ -46,12 +46,13 @@ def what_differs(claims: Sequence[Claim]) -> list[str]:
     return [name for name, values in seen.items() if len(values) > 1]
 
 
-def found_claim_fact(claim: Claim) -> Fact:
-    """The claim as it was found: its number, type, opened date and its summary as written, and nothing more."""
+def found_claim_fact(claim: Claim, *, with_summary: bool = True) -> Fact:
+    """The claim as it was found: its number, type, opened date and (unless the reply goes on to describe the claim
+    itself) its summary as written, and nothing more."""
     details = ", ".join(x for x in (claim.case_type, f"opened {claim.created_at.isoformat()}"
                                     if claim.created_at else None) if x)
     text = f"Claim {claim.case_id}" + (f": {details}" if details else "") + "."
-    if claim.summary:
+    if claim.summary and with_summary:
         text += f' Summary on file: "{claim.summary}".'
     return Fact("found_claim", text, claim.case_id)
 
@@ -84,6 +85,12 @@ async def try_summary(ctx: "TurnContext", claims: Sequence[Claim]) -> SummaryPic
         logger.warning("the model was unavailable to pick a claim by summary; the caller is asked")
         return SummaryPick(None, "unavailable")
     value = picked(pick, ctx.deps.thresholds)
+    if value is None:  # unsure: settled like any unsure pick, the larger model once, before the caller is asked
+        from claims_agent.rules import unsure  # late: unsure reads the engine's turn context
+        settled = await unsure.resolve_pick(pick, question, ctx.request, same_first_answer=lambda a, b: False,
+                                            ruled_out=(), filler=ctx.deps.filler, settler=unsure.settler_for(ctx),
+                                            t=ctx.deps.thresholds, budget=ctx.budget)
+        value = settled.value
     if value is None:
         return SummaryPick(None, "unsure")
     if value == CANNOT_TELL:

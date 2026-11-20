@@ -27,6 +27,9 @@ class IdentityMemory(BaseModel):
     relationship: str | None = None
     tally: dict[str, list[str]] = {}
     wrong_values: list[str] = []
+    # A one-word name that was asked for in full: never held, never sent to the database. The same word given again
+    # is taken as the caller's whole name (held, compared, counted when wrong). Dropped once a name is held.
+    part_of_name: HeldValue | None = None
 
 
 class ConsentMemory(BaseModel):
@@ -39,6 +42,7 @@ class HintMemory(BaseModel):
     claim_filter: dict | None = None
     claim_number: str | None = None
     need: str | None = None
+    need_turn: int | None = None  # the turn the hinted need was first read
     wants_email: bool = False
 
 
@@ -74,6 +78,7 @@ class Counters(BaseModel):
     stalled_in_a_row: int = 0
     mood_by_turn: list[str] = []
     context_floor: int = 0
+    upset_unmoved: int = 0  # upset turns that moved nothing forward since a person was last offered for it
 
 
 class Pending(BaseModel):

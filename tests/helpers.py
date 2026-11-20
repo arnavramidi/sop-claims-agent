@@ -1,3 +1,4 @@
+import asyncio
 import re
 from decimal import Decimal
 from pathlib import Path
@@ -115,7 +116,7 @@ def make_deps(db, **overrides):
     """Engine dependencies over a loaded test database (`TestDb`): scripted filler, extractor and wording."""
     from claims_agent.engine import Deps
     values = dict(settings=load_settings(), thresholds=load_thresholds(), db=db.app, guidance=None,
-                  filler=TurnFiller(), extractor=TurnExtractor(), wording=ScriptedWording(),
+                  filler=TurnFiller(), extractor=TurnExtractor(), wording=HoldingWording(),
                   settler=ScriptedSettler())
     values.update(overrides)
     return Deps(**values)
@@ -295,3 +296,22 @@ class ScriptedSettler:
         if isinstance(item, BaseException):
             raise item
         return item
+
+
+class HoldingWording(ScriptedWording):
+    """The scripted wording model, with `hold()`: the next wording call waits until the returned event is set (so a
+    test can let a turn run while a reply is still being worded in the background)."""
+
+    def __init__(self, replies=None):
+        super().__init__(replies)
+        self._gate: asyncio.Event | None = None
+
+    def hold(self) -> asyncio.Event:
+        self._gate = asyncio.Event()
+        return self._gate
+
+    async def word(self, brief):
+        gate, self._gate = self._gate, None
+        if gate is not None:
+            await gate.wait()
+        return await super().word(brief)

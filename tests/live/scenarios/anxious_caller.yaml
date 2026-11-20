@@ -1,0 +1,10 @@
+id: anxious_caller
+about: An anxious, confused caller (not angry) gets reassurance first, then the next step.
+group: blocked
+turns:
+  - say: "I'm really worried and I don't understand any of this. I got a letter about my claim and I don't know what to do. Is it going to be okay?"
+    expect:
+      verified: none
+      mood: [uneasy, upset]
+      reply_lacks: ["CL-\\d", "pathology", "denied"]
+      judge: "The agent's last reply first reassures the anxious caller in a calm way, then gives the next step (verifying their identity), without any promise about the claim's outcome."

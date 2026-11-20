@@ -1,0 +1,24 @@
+id: claims_described_by_time
+about: '"Most recent", "oldest", "early this year", "between March and June" and "last year" each give the right claim filter.'
+group: resolving
+turns:
+  - say: "Hi, this is Margaret Chen. My date of birth is 1985-03-15 and the last four of my SSN are 4472."
+    expect:
+      verified: P9
+  - say: "What's happening with my most recent claim?"
+    expect:
+      filter: {relative: most_recent}
+      focus: [CL-2102]
+  - say: "And what about my oldest claim?"
+    expect:
+      filter: {relative: oldest}
+      focus: [CL-2011]
+  - say: "Do I have any claims from early this year?"
+    expect:
+      filter: {relative: this_year}
+  - say: "What about claims between March and June?"
+    expect:
+      filter: {months: [3, 4, 5, 6]}
+  - say: "And from last year?"
+    expect:
+      filter: {relative: last_year}

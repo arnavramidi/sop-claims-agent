@@ -1,0 +1,10 @@
+id: year_and_policy_not_read_as_id_digits
+about: '"DOB is 1985-03-15, policy POL-9921": neither the birth year nor the policy digits are taken as the last four of an ID.'
+group: identity
+turns:
+  - say: "Margaret Chen. DOB is 1985-03-15, policy POL-9921."
+    expect:
+      verified: none
+      stated: {id_digits: null}
+      held_kinds: [name, dob, policy]
+      wrong_values: 0

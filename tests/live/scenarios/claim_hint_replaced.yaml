@@ -1,0 +1,16 @@
+id: claim_hint_replaced
+about: '"My auto claim", then "never mind, my denied healthcare one": the second description replaces the first instead of being combined with it.'
+group: memory
+turns:
+  - say: "I'm calling about my auto claim."
+    expect:
+      verified: none
+      filter: {types: [auto]}
+  - say: "Actually, never mind that. It's my denied healthcare claim I want to ask about."
+    expect:
+      verified: none
+      filter: {types: [healthcare], statuses: [denied]}
+  - say: "Margaret Chen, 1985-03-15, SSN ends 4472."
+    expect:
+      verified: P9
+      focus: [CL-2048]

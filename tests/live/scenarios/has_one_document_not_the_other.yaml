@@ -1,0 +1,14 @@
+id: has_one_document_not_the_other
+about: The caller has the office note but cannot get the pathology report; alternatives are given for the pathology report only.
+group: processing
+turns:
+  - say: "I'm the policyholder. My name is Margaret Chen, policy POL-9921. I'm calling about my denied healthcare claim from January. DOB is 1985-03-15, SSN last four is 4472."
+    expect:
+      verified: P9
+      focus: [CL-2048]
+  - say: "I have the office note, but I can't get the pathology report."
+    expect:
+      memory: {"request.alternatives_offered": {"CL-2048": ["pathology report"]}}
+      reply_has: ["pathology"]
+      reply_lacks: ["visit summary", "discharge paperwork", "copy of the chart"]
+      check_passed: true

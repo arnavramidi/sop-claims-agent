@@ -14,6 +14,9 @@ const ENDED_LINE = new Map([
 const RATE_FAILED_LINE = "Your rating could not be saved. Try again.";
 const RATED_UP_LINE = "Rated helpful.";
 const RATED_DOWN_LINE = "Rated not helpful.";
+const KEY_NEEDED_LINE = "Enter a model key to start.";
+const KEY_FORM_LINE = "That is not a model key this page can use. Check it, then enter it again.";
+const KEY_SHAPE = /^[!-~]{1,512}$/; // visible ASCII, as the server accepts it
 const MAX_DEPTH = 8;
 const REQUEST_TIMEOUT_MS = 150000; // above the server's worst case of about two minutes
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -27,11 +30,13 @@ const DECIDER = new Map([
   ["state_before", "code"], ["state_after", "code"], ["freedom", "code"], ["filler", "code"], ["flags", "code"],
   ["fired", "code"], ["parts", "code"], ["checks", "code"], ["memory", "code"], ["counts", "code"],
   ["claims_visible", "code"], ["outbox", "code"], ["handover_note", "code"], ["form", "fast"], ["stated", "text"],
+  ["events", "code"], ["prepared", "code"],
 ]);
-// reply_source: "live" is worded by the text model, "rewrite" by the larger model, the rest is code.
-const REPLY_DECIDER = new Map([["live", "text"], ["rewrite", "large"]]);
+// reply_source: "live" is worded by the text model, "rewrite" by the larger model, "prepared" by the text model ahead
+// of time (and checked again before it is sent), the rest is code.
+const REPLY_DECIDER = new Map([["live", "text"], ["rewrite", "large"], ["prepared", "text"]]);
 const ORDER = ["state_before", "state_after", "freedom", "filler", "form", "stated", "flags", "fired", "parts",
-  "reply_source", "checks", "memory", "counts", "claims_visible", "outbox", "handover_note"];
+  "reply_source", "checks", "memory", "counts", "claims_visible", "outbox", "handover_note", "events", "prepared"];
 
 const $ = (id) => document.getElementById(id);
 const els = {
@@ -61,7 +66,8 @@ function clearBanner() { els.banner.hidden = true; els.banner.textContent = ""; 
 
 // ---- API --------------------------------------------------------------------------------------------------------
 // Never throws. Returns {status, data, failure}: failure is "network", "timeout" or "aborted" (status 0), else "".
-async function api(method, path, body, outer) {
+// `extra` adds request headers (only the message request passes one: the hosted model key). Every path is this page's own.
+async function api(method, path, body, outer, extra) {
   const ctl = new AbortController();
   let timedOut = false;
   const timer = setTimeout(() => { timedOut = true; ctl.abort(); }, REQUEST_TIMEOUT_MS);
@@ -69,7 +75,7 @@ async function api(method, path, body, outer) {
   try {
     const res = await fetch(path, {
       method, signal: ctl.signal,
-      headers: body === undefined ? {} : { "Content-Type": "application/json" },
+      headers: Object.assign(body === undefined ? {} : { "Content-Type": "application/json" }, extra || {}),
       body: body === undefined ? undefined : JSON.stringify(body),
     });
     let data = null;
@@ -408,6 +414,41 @@ async function loadMeta(tok) {
   renderValue(els.loadReport, r.data.load_report, 0, "No load problems reported.");
   showMetaState();
   if (r.data.admin === true) showAdminControl();
+  if (r.data.hosted === true) showKeyBox();
+}
+
+// ---- Hosted mode: the visitor's own model key (built only when the server says it is hosted) ----------------------
+// The key is kept in this one variable while the page is open, never in browser storage, a cookie or the address,
+// so a reload asks for it again. It is sent only to this page's own server, only on the message request.
+let modelKey = "";
+let keyEls = null;
+function showKeyBox() {
+  if (keyEls) return;
+  const box = el("div", "key-box");
+  const label = el("label", "", "Your model key");
+  label.htmlFor = "model-key";
+  const input = el("input");
+  input.type = "password";
+  input.id = "model-key";
+  input.autocomplete = "off";
+  input.spellcheck = false;
+  input.maxLength = 512;
+  const note = el("p", "muted", "Used only for your messages while this page is open. It is not saved; after a reload you enter it again.");
+  input.addEventListener("input", () => { modelKey = input.value.trim(); });
+  box.appendChild(label);
+  box.appendChild(input);
+  box.appendChild(note);
+  els.transcript.parentNode.insertBefore(box, els.transcript);
+  keyEls = { input };
+}
+// Hosted: the header for the message request, or null (and the reason shown) when there is no usable key.
+function keyHeader() {
+  if (!keyEls) return {};
+  if (!modelKey || !KEY_SHAPE.test(modelKey)) {
+    showBanner(modelKey ? KEY_FORM_LINE : KEY_NEEDED_LINE);
+    return null;
+  }
+  return { "X-Model-Key": modelKey };
 }
 
 // ---- Demo control: change a claim of the verified customer (built only when the server says it is on) ------------
@@ -492,7 +533,9 @@ async function sendMessage() {
   if (app.op || isEnded() || !app.cid) return;
   const text = els.input.value.trim();
   if (!text) return;
-  await run("send", async (tok) => {
+  const outcome = await run("send", async (tok) => {
+    const keyed = keyHeader();
+    if (keyed === null) return "no_key"; // nothing was sent: the text stays in the box
     clearBanner();
     els.input.value = "";
     const cid = app.cid, before = app.turns.length;
@@ -502,7 +545,7 @@ async function sendMessage() {
     const waiting = addBubble("agent", "Thinking...", "pending");
     waiting.setAttribute("aria-hidden", "true");
     try {
-      const r = await api("POST", convPath(cid) + "/messages", { text });
+      const r = await api("POST", convPath(cid) + "/messages", { text }, undefined, keyed);
       // A send holds the token until it settles: nothing can supersede it (an address change waits).
       if (ok(r) && validSend(r.data)) {
         waiting.remove();
@@ -520,6 +563,7 @@ async function sendMessage() {
         app.drafts.delete(cid); // nothing was recorded: the text is back in the box, unsent
         els.input.value = text;
         showBanner(errorText(r));
+        if (r.data.error === "model_key_needed") showKeyBox(); // the server is hosted even if the page missed it
         if (r.status === 404) {
           orphan(cid); // that conversation is gone: the text moves to the new one
           await startNew(tok, false, true);
@@ -546,7 +590,8 @@ async function sendMessage() {
       throw e;
     }
   });
-  if (isEnded()) els.newBtn.focus(); else if (!els.input.disabled) els.input.focus();
+  if (outcome === "no_key") keyEls.input.focus();
+  else if (isEnded()) els.newBtn.focus(); else if (!els.input.disabled) els.input.focus();
   if (app.addressDirty) { app.addressDirty = false; await followAddress(); }
 }
 

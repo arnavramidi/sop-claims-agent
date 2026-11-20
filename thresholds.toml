@@ -3,6 +3,5 @@ yes = 0.5
 unsure_low = 0.35
 unsure_high = 0.65
 pick_confident = 0.6
-filter_include_min = 0.35
 send_email_min = 0.8
 prepared_reply_min = 0.8

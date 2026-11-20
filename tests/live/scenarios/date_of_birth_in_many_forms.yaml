@@ -1,0 +1,33 @@
+id: date_of_birth_in_many_forms
+about: The same date of birth said four ways ("March 15, 1985", "15th of March '85", "3/15/85", spoken in words) is read as one date and never counted as a wrong value.
+group: identity
+turns:
+  - say: "Hi, my name is Margaret Chen and my date of birth is March 15, 1985."
+    expect:
+      verified: none
+      held_kinds: [name, dob]
+      held: {dob: "1985-03-15"}
+      stated: {date_of_birth: "1985-03-15"}
+      wrong_values: 0
+  - say: "Sorry, just to be clear, my birthday is the 15th of March '85."
+    expect:
+      verified: none
+      held: {dob: "1985-03-15"}
+      stated: {date_of_birth: "1985-03-15"}
+      wrong_values: 0
+  - say: "Or the way I'd write it on a form: 3/15/85."
+    expect:
+      verified: none
+      held: {dob: "1985-03-15"}
+      stated: {date_of_birth: "1985-03-15"}
+      wrong_values: 0
+  - say: "That's March fifteenth, nineteen eighty-five."
+    expect:
+      verified: none
+      held: {dob: "1985-03-15"}
+      stated: {date_of_birth: "1985-03-15"}
+      wrong_values: 0
+  - say: "And the last four of my SSN are 4472."
+    expect:
+      verified: P9
+      wrong_values: 0

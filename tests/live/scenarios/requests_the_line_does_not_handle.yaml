@@ -1,0 +1,22 @@
+id: requests_the_line_does_not_handle
+about: Coverage, billing and contact-change requests are said to be unsupported, with a person offered each time.
+group: blocked
+turns:
+  - say: "Hi, this is Margaret Chen. My date of birth is 1985-03-15 and the last four of my SSN are 4472."
+    expect:
+      verified: P9
+  - say: "Is physiotherapy covered under my plan?"
+    expect:
+      instructions: [unsupported_offer_person]
+      handed_over: false
+      reply_has: ["person|someone|representative|colleague|team"]
+  - say: "No thanks. Can you explain the bill I got last month?"
+    expect:
+      instructions: [unsupported_offer_person]
+      handed_over: false
+      reply_has: ["person|someone|representative|colleague|team"]
+  - say: "No. I want to change the phone number on my account."
+    expect:
+      instructions: [unsupported_offer_person]
+      handed_over: false
+      reply_has: ["person|someone|representative|colleague|team"]

@@ -19,6 +19,9 @@ class Limits(BaseModel):
     model_timeout_seconds: int
     message_chars: int = 4000  # at most this much of one caller message goes into any model request
     documents_offered: int = 25  # at most this many outstanding documents are offered to the form as choices
+    event_body_chars: int = 6000  # the longest body of one event record, as JSON text
+    events_per_turn: int = 40  # the most event records one turn writes
+    replies_prepared: int = 4  # the most follow-up replies worded ahead after one turn
 
 
 class Today(BaseModel):
@@ -59,6 +62,16 @@ class Braintrust(BaseModel):
     project: str = "sop-claims-agent"
 
 
+class Examples(BaseModel):
+    """Reviewed example phrasings shown to the form-filling model (see claims_agent.examples)."""
+    path: str = "evals/approved_examples.json"
+    dataset: str = "approved-examples"
+    per_option: int = 5
+    total: int = 100
+    message_chars: int = 120
+    remote_timeout_seconds: float = 5.0
+
+
 class Freedom(BaseModel):
     claim_facts: bool
     settle_unsure: bool
@@ -87,6 +100,14 @@ class Followups(BaseModel):
     special: dict[str, Special] = Field(default_factory=dict)
 
 
+class Hosted(BaseModel):
+    """Limits that apply only in hosted mode (HOSTED=1), where strangers bring their own model key."""
+    max_key_chars: int = 512  # the longest model key accepted in the X-Model-Key header
+    conversations_per_minute: int = 10  # per visitor address
+    messages_per_minute: int = 30  # per visitor address
+    tracked_addresses: int = 10000  # the most visitor addresses the rate limiter remembers at once
+
+
 class Settings(BaseModel):
     limits: Limits
     today: Today
@@ -100,6 +121,8 @@ class Settings(BaseModel):
     needs: dict[str, Need]
     followups: Followups
     braintrust: Braintrust = Field(default_factory=Braintrust)
+    examples: Examples = Field(default_factory=Examples)
+    hosted: Hosted = Field(default_factory=Hosted)
 
 
 class Thresholds(BaseModel):
@@ -107,7 +130,6 @@ class Thresholds(BaseModel):
     unsure_low: float
     unsure_high: float
     pick_confident: float
-    filter_include_min: float
     send_email_min: float
     prepared_reply_min: float
 

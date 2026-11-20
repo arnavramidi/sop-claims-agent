@@ -28,7 +28,9 @@ claims_agent = ["web/*.html", "web/*.js", "web/*.css"]
 [tool.pytest.ini_options]
 # The tracing library ships a pytest plugin that imports it at start-up; it is switched off so that a run with no
 # key can show the library is never imported.
-addopts = "-p no:braintrust"
+# Live tests call the real models and cost money: an ordinary run leaves them out, and `-m live` (a later -m wins)
+# selects them.
+addopts = "-p no:braintrust -m 'not live'"
 asyncio_mode = "auto"
 asyncio_default_fixture_loop_scope = "function"
 testpaths = ["tests"]

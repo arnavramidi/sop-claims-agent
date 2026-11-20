@@ -57,13 +57,14 @@ async def test_r14_generic_summaries_show_both_and_say_it_cannot_tell(load_datas
     assert "cannot_tell" in [f.kind for f in facts(r)]
 
 
-async def test_r12_one_august_claim_names_its_type_and_quotes_its_summary(load_dataset):
+async def test_r12_one_august_claim_names_its_type_and_gives_its_status(load_dataset):
     deps = make_deps(await load_dataset("august_single"))
     cid = await _dana(deps)
     r = await say(deps, cid, SAID, TOOTH)
     first = facts(r)[0]
-    assert first.kind == "found_claim" and "dental" in first.text and "Dental claim completed" in first.text \
-        and "emergency" not in first.text.lower()
+    assert first.kind == "found_claim" and "dental" in first.text and "emergency" not in first.text.lower()
+    # the opening that follows describes the claim (its status), so the summary is not repeated before it
+    assert "Summary on file" not in first.text and any(f.kind == "status" for f in facts(r))
 
 
 async def test_x14_a_summary_pick_outside_the_candidates_is_rejected(descriptive_deps, dana):
@@ -108,3 +109,11 @@ async def test_r10_listed_claims_carry_dates_so_the_newer_one_can_be_picked(deps
                   [(c.case_id, c.created_at) for c in deps.filler.requests[-1].listed_claims])
     assert "2026-01-12" in labels["CL-2048"] and "2025-01-28" in labels["CL-2011"]
     assert await focus(deps, cid) == ["CL-2048"]
+
+
+async def test_an_unsure_summary_pick_is_settled_by_the_larger_model_before_the_caller_is_asked(descriptive_deps, dana):
+    descriptive_deps.filler.queue_one(Pick(value="CL-6001", p=0.5, options={"CL-6001": 0.5, "CL-6002": 0.4}))
+    descriptive_deps.settler.queue(Pick(value="CL-6001", p=0.9, by="larger"))
+    r = await say(descriptive_deps, dana, SAID, TOOTH)
+    assert await focus(descriptive_deps, dana) == ["CL-6001"] and "which_claim" not in instructions(r)
+    assert [q.name for _, q in descriptive_deps.settler.calls] == ["claim_summary"]

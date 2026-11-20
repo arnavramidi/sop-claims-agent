@@ -17,6 +17,7 @@ from claims_agent.db.claims import (Claim, ClaimFilter, count, fetch, fetch_ids,
                                     filter_to_dict, find_numbered, merge, most_even_split, overview, relax,
                                     with_need)
 from claims_agent.db.identity import account_info
+from claims_agent import records
 from claims_agent.rules import calculate, unsure
 from claims_agent.rules.summary_match import NOT_SEPARATED, found_claim_fact, try_summary
 from claims_agent.engine import PLAIN, STEPS, StepOutcome, TurnContext
@@ -225,6 +226,22 @@ class _Resolve:
         return None
 
 
+def wants_more_than_focus(how_many: str | None, in_focus: int) -> bool:
+    """With claims in focus, the caller means more claims than those: all of them, or several while only one is in
+    focus ("what about my other claims?")."""
+    return in_focus > 0 and (how_many == "all" or (how_many == "several" and in_focus == 1))
+
+
+def _without_summary(part: ReplyPart, claims: Sequence[Claim]) -> ReplyPart:
+    """A found-claim part naming the claim by number, type and date only; any other part as it is."""
+    claim = next((c for c in claims if part.instruction == "found_claim" and part.facts
+                  and part.facts[0].claim == c.case_id), None)
+    if claim is None:
+        return part
+    fact = found_claim_fact(claim, with_summary=False)
+    return replace(part, facts=(fact,), plain=sentences("", (fact,)))
+
+
 def _need(ctx: TurnContext, t) -> str | None:
     """The confident pick, else the hint; never "none" or an account question (that is answered with no claim)."""
     pick = picked(ctx.form.need, t)
@@ -232,6 +249,15 @@ def _need(ctx: TurnContext, t) -> str | None:
         return pick
     hint = ctx.memory.hints.need
     return None if hint in NOT_A_NEED else hint
+
+
+def _need_turn(ctx: TurnContext, t) -> int:
+    """The turn the need was first read from the caller: this one when this message gave it, else the turn the
+    hinted need was first seen."""
+    now = ctx.memory.counters.turn_no
+    if picked(ctx.form.need, t) not in NOT_A_NEED:
+        return now
+    return ctx.memory.hints.need_turn or now
 
 
 async def _which(r: _Resolve, total: int, need: str | None, how_many: str) -> list[Claim] | None:
@@ -244,7 +270,9 @@ async def _which(r: _Resolve, total: int, need: str | None, how_many: str) -> li
     number = (ctx.stated.claim_number or "").strip() or ((hints.claim_number or "").strip() if first else "")
     listed = picked(form.listed_claim, t)
     listed = None if listed in (None, "none") else listed
-    all_afresh = how_many == "all" and relation == "new_search" and not new.conditions()
+    # All claims, afresh: a new search for all of them, or more claims asked for than are in focus.
+    all_afresh = not new.conditions() and (how_many == "all" and relation == "new_search"
+                                           or wants_more_than_focus(how_many, len(focus.claim_ids)))
 
     if total == 1:
         claims = await fetch(conn, ClaimFilter(), today, 1)
@@ -343,6 +371,7 @@ async def step(ctx: TurnContext) -> StepOutcome:
         return r.stay(grounded=bool(facts))
 
     need = _need(ctx, t)
+    need_read_on = _need_turn(ctx, t) if need is not None else ctx.memory.counters.turn_no
     how_many = picked(form.how_many, t) or "none"
 
     # The full list of the overview just shown, asked for by email: exactly what the overview described.
@@ -394,8 +423,15 @@ async def step(ctx: TurnContext) -> StepOutcome:
     elif need == "document_submission" and not any(c.documents for c in claims):
         need, note = "status_inquiry", "no_documents_requested"
 
-    # 6. Both known: on to the answers.
+    # 6. Both known: on to the answers. When they open with the claims' status, the line naming a claim found leaves
+    # its summary out: the opening describes the claim itself, and the summary would only repeat it.
+    from claims_agent.rules.process_case import gives_opening  # late: that module imports this one
+    if gives_opening(form, t, need, note, claims, ctx.deps.settings):
+        r.parts = [_without_summary(p, claims) for p in r.parts]
     focus.need, focus.need_note = need, note
+    if ctx.recorder is not None:
+        ctx.record("resolved_need", need=need, set_on_turn=need_read_on,
+                   shaped_by=records.shaped_by(ctx.recorder, form, ctx.request, t))
     r.fired.append({"rule": "in_focus", "claims": focus.claim_ids, "need": need, "note": note})
     return StepOutcome(State.PROCESS_CASE, r.parts, hop=True, fired=r.fired)
 

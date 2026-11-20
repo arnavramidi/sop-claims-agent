@@ -61,3 +61,7 @@ details.static { border-top: 1px solid var(--op-line); padding: 6px 0; }
 .thumbs { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin-top: 6px; }
 .thumbs .muted { margin: 0; }
 .thumbs-comment { flex: 1 1 10rem; min-width: 0; }
+.key-box { margin: 0 0 8px; }
+.key-box label { display: block; font-weight: 600; margin: 0 0 4px; }
+.key-box input { width: 100%; }
+.key-box .muted { margin: 4px 0 0; font-size: .9rem; }

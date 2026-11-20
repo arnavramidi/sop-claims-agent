@@ -1,0 +1,15 @@
+id: details_over_several_turns
+about: Identity details spread over three messages with chatter in between add up across turns and verify on the third.
+group: identity
+turns:
+  - say: "Hi there, my name is Margaret Chen."
+    expect:
+      verified: none
+      held_kinds: [name]
+  - say: "Sorry, it's been a long day and the weather here is awful. Anyway, my birthday is 1985-03-15."
+    expect:
+      verified: none
+      held_kinds: [name, dob]
+  - say: "Oh, and my phone number is 650-521-2836."
+    expect:
+      verified: P9

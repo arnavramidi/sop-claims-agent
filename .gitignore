@@ -7,3 +7,6 @@ __pycache__/
 
 # macOS Finder files
 .DS_Store
+
+# Outcomes of the latest live run (the results page is built from them)
+tests/live/results/

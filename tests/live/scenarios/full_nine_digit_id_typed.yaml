@@ -1,0 +1,24 @@
+id: full_nine_digit_id_typed
+about: A caller types a full nine-digit ID; only its last four are used, the inspector never shows the rest, and the summary email holds no personal details.
+group: identity
+turns:
+  - say: "This is Margaret Chen, born 1985-03-15, and my social security number is 123-45-4472."
+    expect:
+      verified: P9
+      held: {id: "4472"}
+      inspector_lacks: ["123[- ]?45[- ]?4472", "\\b123-45\\b"]
+  - say: "What's the status of my auto claim?"
+    expect:
+      focus: [CL-2102]
+      reply_has: ["CL-2102"]
+  - say: "No, that's everything, thanks."
+    expect:
+      state: POST_PROCESS
+      instructions: [offer_email]
+      outbox_count: 0
+  - say: "Yes, please email me the summary."
+    expect:
+      state: DONE
+      outbox_count: 1
+      outbox_lacks: ["margaret", "chen", "4472", "123-?45", "1985", "POL-9921", "@", "650"]
+      inspector_lacks: ["123[- ]?45[- ]?4472"]

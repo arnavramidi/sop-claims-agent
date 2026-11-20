@@ -115,3 +115,35 @@ def test_a_rating_is_sent_as_one_operation_and_its_answer_is_checked():
     src = js()
     assert 'run("rate"' in src and "validRate(r.data)" in src
 
+
+
+# ---- hosted mode: the visitor's model key -------------------------------------------------------------------------
+
+def test_the_page_keeps_the_key_out_of_storage():
+    js = read("src/claims_agent/web/app.js"); assert "localStorage" not in js and "sessionStorage" not in js and "X-Model-Key" in js
+
+
+def test_the_key_box_is_a_password_box_built_by_the_script():
+    src = js()
+    assert 'input.type = "password"' in src and 'el("input")' in src
+    assert "model-key" not in read("src/claims_agent/web/index.html")  # it exists only when the server is hosted
+    assert "r.data.hosted === true" in src
+
+
+def test_the_key_is_kept_in_one_variable_and_never_reaches_storage_a_cookie_or_the_address():
+    src = js()
+    assert re.findall(r"\bmodelKey\s*=(?!=)\s*([^;]*);", src) == ['""', "input.value.trim()"]
+    for line in src.splitlines():
+        if "modelKey" in line:
+            for banned in ("location", "history", "Storage", "cookie", "encodeURIComponent", "convPath", "console", "+ modelKey", "modelKey +"):
+                assert banned not in line, line
+
+
+def test_the_key_is_sent_only_on_the_message_request_to_the_pages_own_server():
+    src = js()
+    assert src.count("X-Model-Key") == 1
+    keyed_calls = re.findall(r"api\([^;]*\bkeyed\)", src)
+    assert len(keyed_calls) == 1 and '"/messages"' in keyed_calls[0] and keyed_calls[0].startswith('api("POST"')
+    assert src.count("fetch(") == 1 and "fetch(path," in src
+    for call in re.findall(r"\bapi\(\s*\"[A-Z]+\",\s*([^,)]+)", src):
+        assert call.startswith('"/') or call.startswith("convPath("), call  # every request goes to this page's server

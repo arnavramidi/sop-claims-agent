@@ -133,3 +133,41 @@ async def test_f2_a_new_owner_function_is_closed_to_the_app_unless_granted(owner
     with pytest.raises(psycopg.errors.InsufficientPrivilege):
         async with app_db.conversation(None) as c:
             await c.execute("SELECT public.probe_closed()")
+
+
+async def _add_event(app_db, conversation_id, body="{}"):
+    async with app_db.conversation(conversation_id) as c:
+        await c.execute("INSERT INTO events (conversation_id, turn_no, kind, body) VALUES (%s, 1, 'extraction', %s)",
+                        [conversation_id, body])
+
+
+async def test_a_conversation_reads_only_its_own_events(app_db, seed):
+    await _add_event(app_db, seed.unverified)
+    await _add_event(app_db, seed.verified_p12)
+    async with app_db.conversation(seed.unverified) as c:
+        rows = await (await c.execute("SELECT conversation_id FROM events")).fetchall()
+    assert [r[0] for r in rows] == [seed.unverified]
+    async with app_db.conversation(None) as c:
+        assert await (await c.execute("SELECT count(*) FROM events")).fetchone() == (0,)
+
+
+async def test_a_conversation_cannot_write_an_event_for_another_conversation(app_db, seed):
+    with pytest.raises(psycopg.errors.InsufficientPrivilege):
+        await _add_event_for(app_db, seed.unverified, seed.verified_p12)
+
+
+async def _add_event_for(app_db, as_conversation, for_conversation):
+    async with app_db.conversation(as_conversation) as c:
+        await c.execute("INSERT INTO events (conversation_id, turn_no, kind, body) VALUES (%s, 1, 'extraction', '{}')",
+                        [for_conversation])
+
+
+async def test_the_app_account_can_change_only_an_events_body_and_never_delete_one(app_db, seed):
+    await _add_event(app_db, seed.unverified)
+    async with app_db.conversation(seed.unverified) as c:
+        await c.execute("UPDATE events SET body = '{\"a\": 1}'")
+    for statement in ("UPDATE events SET kind = 'other'", "UPDATE events SET conversation_id = gen_random_uuid()",
+                      "UPDATE events SET turn_no = 9", "DELETE FROM events"):
+        with pytest.raises(psycopg.errors.InsufficientPrivilege):
+            async with app_db.conversation(seed.unverified) as c:
+                await c.execute(statement)

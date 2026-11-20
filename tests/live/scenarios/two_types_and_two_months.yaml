@@ -1,0 +1,10 @@
+id: two_types_and_two_months
+about: '"Healthcare or dental, January or February" puts both types and both months in the claim filter.'
+group: resolving
+turns:
+  - say: "Hi, this is Margaret Chen. My date of birth is 1985-03-15 and the last four of my SSN are 4472."
+    expect:
+      verified: P9
+  - say: "I want to ask about my healthcare or dental claim, from January or February."
+    expect:
+      filter: {types: [dental, healthcare], months: [1, 2]}

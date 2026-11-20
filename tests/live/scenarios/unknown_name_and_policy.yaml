@@ -1,0 +1,11 @@
+id: unknown_name_and_policy
+about: A name and policy number that match nobody get the same reply as a partial match, never "no such person".
+group: identity
+turns:
+  - say: "Hello, my name is John Smith and my policy number is POL-5555."
+    expect:
+      verified: none
+      instructions: [ask_another_detail]
+      instructions_lack: [not_listed]
+      reply_lacks: ["no such", "(could not|couldn['’]t|can['’]t|cannot|unable to|did not|didn['’]t) (find|locate)", "not (in|on) (our|the) (system|records|file)", "does(n['’]t| not) (exist|match)", "no (record|account|policy|customer)"]
+      check_passed: true

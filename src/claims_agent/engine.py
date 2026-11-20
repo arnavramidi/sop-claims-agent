@@ -22,7 +22,8 @@ from uuid import UUID
 
 from psycopg import AsyncConnection
 
-from claims_agent.answers.facts import ANSWERS, COMPARE_CLAIMS, available
+from claims_agent import prepared
+from claims_agent.answers.facts import ANSWER_MEANS, ANSWERS, COMPARE_CLAIMS, available
 from claims_agent.budget import TurnBudget
 from claims_agent.db import conversations as store
 from claims_agent.db.claims import (Claim, as_listed, customer_vocabulary, fetch_ids, filter_from_form,
@@ -31,10 +32,11 @@ from claims_agent.db.guidance import Guidance, load_guidance
 from claims_agent.db.conversations import Conversation
 from claims_agent.db.identity import clear_verified
 from claims_agent.db.pool import AppDb
+from claims_agent.examples import with_approved
 from claims_agent.form.fields import Form, ListedClaim, StatedValues
 from claims_agent.form.filler import Extractor, FormFiller
 from claims_agent.form.questions import RECENT_WINDOW, FormRequest
-from claims_agent.form.read import picked, yes
+from claims_agent.form.read import confident_yes, picked, yes
 from claims_agent.form.settle import Settler
 from claims_agent.inspect import inspector_payload, mask_ids
 from claims_agent.loader.read import FALLBACK_TOPIC
@@ -44,10 +46,12 @@ from claims_agent.models.errors import (ModelAccountProblem, ModelError, ModelKe
                                         ModelRequestRejected, ModelUnavailable)
 from claims_agent.reply.brief import ReplyBrief, ReplyPart
 from claims_agent.reply.compose import compose
+from claims_agent.records import Recorder
 from claims_agent.reply.wording import Wording
+from claims_agent.rules import other_person
 from claims_agent.rules.every_message import PERSON_OFFER, global_outcome, usable
 from claims_agent.rules.handover import handover_note, note
-from claims_agent.rules.mood import caller_mood, frustrated_again
+from claims_agent.rules.mood import caller_mood, upset_unmoved
 from claims_agent.rules.progress import apply_stall, made_progress
 from claims_agent.settings import Settings, Thresholds
 from claims_agent.states import State
@@ -104,6 +108,7 @@ class Deps:
     wording: Wording
     turn_log: TurnLog = field(default_factory=NoLog)
     settler: Settler | None = None  # the larger model, for unsure picks
+    examples: dict[str, tuple[str, ...]] = field(default_factory=dict)  # reviewed example phrasings, read at start
 
 
 @dataclass
@@ -119,6 +124,12 @@ class TurnContext:
     entered_by_hop: bool
     request: FormRequest | None = None  # this turn's form request, as the fast model was asked it
     budget: TurnBudget = field(default_factory=TurnBudget)  # the turn's own: every step shares it
+    recorder: Recorder | None = None  # the turn's event records
+
+    def record(self, kind: str, /, **body) -> None:
+        """Keep one event for this turn (nothing happens in a context built without a recorder)."""
+        if self.recorder is not None:
+            self.recorder.add(kind, **body)
 
 
 @dataclass
@@ -222,6 +233,11 @@ class _Turn:
         self.request: FormRequest | None = None
         self.budget = TurnBudget()
         self.part_progress = False  # a part of a message split into questions moved things forward
+        lim = deps.settings.limits
+        self.recorder = Recorder(conv.id, memory.counters.turn_no, body_chars=lim.event_body_chars,
+                                 max_events=lim.events_per_turn, floor=memory.counters.context_floor)
+        self.mood_change: tuple[str, str] | None = None  # (before, after) when the caller's clear mood changed
+        self.focus_at_start = list(memory.focus.claim_ids)  # prepared replies are discarded when this changes
 
 
 async def _turn(deps: Deps, conn: AsyncConnection, conv: Conversation, memory: Memory, message: str,
@@ -258,12 +274,18 @@ async def _turn(deps: Deps, conn: AsyncConnection, conv: Conversation, memory: M
         stall = apply_stall(memory.counters, bool(reasons) or turn.part_progress, state_before, conv.state, s.limits.stalled_turns)
         memory.counters.stalled_in_a_row = stall.stalled_in_a_row
         # An upset caller asked again with nothing moving gets a person offered as the other way on, without waiting
-        # for the stall limit; the offer resets the stall count like any other.
-        upset = turn.form is not None and frustrated_again(memory.counters.mood_by_turn, bool(reasons))
+        # for the stall limit; the offer resets the stall count like any other. Re-describing the claim (a hint) is
+        # not movement here: it is remembered for later, and the caller is still where they were.
+        upset = False
+        if turn.form is not None:
+            moved = any(r != "hint added or changed" for r in reasons) or turn.part_progress
+            memory.counters.upset_unmoved, upset = upset_unmoved(
+                memory.counters.upset_unmoved, memory.counters.mood_by_turn[-1], moved)
         if (stall.offer_person or upset) and not any(_offers_person(p) for p in turn.parts):
             turn.parts.append(ReplyPart("offer_person", plain=PLAIN["offer_person"], pending=PERSON_OFFER))
             turn.fired.append({"rule": "stall_limit" if stall.offer_person else "frustrated_again"})
             memory.counters.stalled_in_a_row = 0
+            memory.counters.upset_unmoved = 0
     _settle_pending(turn, pick)
     return await _finish(turn, state_before)
 
@@ -276,13 +298,18 @@ async def _read_and_act(turn: _Turn) -> None:
 
     req = await _form_request(turn, verified)
     turn.request = req
-    turn.form, turn.stated = await _fill(deps, req, turn.message, verified)
+    turn.form, turn.stated = await _fill(deps, req, turn.message, verified,
+                                         acting_for=memory.identity.caller_role == "third_party")
     form = turn.form
     _save_hints(memory, form, turn.stated, t)
     mood = caller_mood(form.mood, t)
+    last_clear = next((m for m in reversed(memory.counters.mood_by_turn) if m != "unclear"), None)
+    if mood is not None and last_clear is not None and mood != last_clear:
+        turn.mood_change = (last_clear, mood)
     memory.counters.mood_by_turn.append(mood or "unclear")
 
-    outcome = global_outcome(form, verified=verified, pending=memory.pending, t=t)
+    outcome = global_outcome(form, verified=verified, pending=memory.pending, t=t,
+                             **other_person.switch_reading(memory, form, turn.stated, t))
     language = [p for p in outcome.parts if p.instruction == "offer_person_in_language"]
     turn.parts = [p for p in outcome.parts if p.instruction != "offer_person_in_language"]
     hop = False
@@ -291,11 +318,15 @@ async def _read_and_act(turn: _Turn) -> None:
     if outcome.terminal == "handover":
         await _hand_over(turn, ("caller", "asked_for_person"))
         return
+    if outcome.terminal == "confirm_policyholder":  # asked before anything is told about anyone's claims
+        turn.parts = list(outcome.parts)
+        return
     if outcome.terminal == "close":
         conv.state = State.CLOSED
         turn.parts = [ReplyPart("closed", plain=PLAIN["closed"])]
         return
     if outcome.terminal == "reset_identity":  # Ruling 4: the database and memory forget together, in this transaction
+        await prepared.discard(conn, conv.id)  # while the rows are still visible to this conversation
         await clear_verified(conn, conv.id)
         memory.reset_for_new_identity()
         conv.state = State.VERIFY_ID
@@ -356,13 +387,14 @@ async def guidance(deps: Deps, conn: AsyncConnection) -> Guidance:
 
 def _context(turn: _Turn, entered_by_hop: bool) -> TurnContext:
     return TurnContext(turn.conn, turn.conv, turn.memory, turn.message, turn.form, turn.stated, turn.deps, turn.today,
-                       entered_by_hop, request=turn.request, budget=turn.budget)
+                       entered_by_hop, request=turn.request, budget=turn.budget, recorder=turn.recorder)
 
 
 async def _hand_over(turn: _Turn, handover: tuple[str, str]) -> None:
     kind, reason = handover
     turn.note = handover_note(_context(turn, False), reason)
     await store.add_escalation(turn.conn, turn.conv.id, turn.memory.counters.turn_no, kind, reason, turn.note)
+    turn.recorder.add("escalation", why=reason, went_to="person", transcript=None)
     turn.conv.state = State.ESCALATED
     turn.parts = [ReplyPart("handover", plain=PLAIN["handover"])]  # nothing else is said
     turn.fired.append({"rule": "handover", "reason": reason})
@@ -413,6 +445,9 @@ async def _finish(turn: _Turn, state_before: State, *, fixed: bool = False) -> T
     if freedom is not None and not freedom.claim_facts and any(f.claim for p in turn.parts for f in p.facts):
         fixed = True  # Ruling 7: in this state no claim fact may enter a model call
         turn.fired.append(dict(KEPT_FROM_MODEL))
+    if memory.focus.claim_ids != turn.focus_at_start:
+        await prepared.discard(conn, conv.id)
+    turn.parts = prepared.kept(turn.parts, turn.form, t, freedom, s.prepared_replies.enabled)
 
     form = turn.form
     rows = await _turns_since(conn, conv.id, memory.counters.context_floor)
@@ -429,6 +464,12 @@ async def _finish(turn: _Turn, state_before: State, *, fixed: bool = False) -> T
         memory.pending = PERSON_OFFER  # the last-resort line offers a person: a "yes" must hand over
         memory.counters.stalled_in_a_row = 0  # Ruling 20: offering a person resets the stall count
 
+    if turn.mood_change is not None:
+        turn.recorder.add("mood_change", before=turn.mood_change[0], after=turn.mood_change[1], message=turn.message,
+                          reply=composed.text)
+    turn.recorder.current = (turn.message, composed.text)
+    await turn.recorder.flush(conn)  # in the turn's own transaction: a turn rolled back leaves none of these
+
     payload = inspector_payload(
         state_before=state_before.value, state_after=conv.state.value,
         freedom=None if freedom is None else {"level": freedom_name, **freedom.model_dump()},
@@ -437,7 +478,8 @@ async def _finish(turn: _Turn, state_before: State, *, fixed: bool = False) -> T
         composed=composed, memory=memory.model_dump(mode="json"),
         counts={"stalled": memory.counters.stalled_in_a_row, "wrong_values": len(memory.identity.wrong_values),
                 "consent_checks": memory.consent.checks_used},
-        claims_visible=await _claims_visible(conn), outbox=await _outbox(conn, conv.id), handover_note=turn.note)
+        claims_visible=await _claims_visible(conn), outbox=await _outbox(conn, conv.id), handover_note=turn.note,
+        events=turn.recorder.shown(), prepared=await prepared.on_hand(conn, conv.id))
     turn_id = await store.append_turn(conn, conv.id, memory.counters.turn_no, turn.whole, composed.text,
                                       state_before.value, conv.state.value, payload, turn.span_id)
     await store.save(conn, conv, memory)
@@ -451,6 +493,7 @@ async def _failed(deps: Deps, conn: AsyncConnection, conv: Conversation, memory:
     state_before = conv.state
     turn.note = note(conv, memory, turn.message, reason)
     await store.add_escalation(conn, conv.id, memory.counters.turn_no, "failure", reason, turn.note)
+    turn.recorder.add("escalation", why=reason, went_to="person", transcript=None)
     conv.state = State.ESCALATED
     memory.pending = None
     turn.parts = [ReplyPart("model_trouble", plain=PLAIN["model_trouble"])]
@@ -507,6 +550,7 @@ async def _form_request(turn: _Turn, verified: bool) -> FormRequest:
     conn, memory, s = turn.conn, turn.memory, turn.deps.settings
     cap = s.limits.message_chars
     rows = await _turns_since(conn, turn.conv.id, memory.counters.context_floor)
+    turn.recorder.recent_turns = [n for n, _, _, _ in rows[-RECENT_WINDOW:]]  # what the form's per-message questions mean
     listed: tuple[ListedClaim, ...] = ()
     followups = await _followups(conn)
     topics = [topic for topic, _ in followups]
@@ -534,8 +578,10 @@ async def _form_request(turn: _Turn, verified: bool) -> FormRequest:
         state=turn.conv.state, verified=verified,
         claim_types=types, claim_statuses=statuses, years=years, listed_claims=listed,
         needs=await _vocabulary(conn, "need"), relationships=await _vocabulary(conn, "relationship"),
-        answers=tuple((a, a.replace("_", " ")) for a in names), documents=documents,
-        examples={f"answer_wanted:{topic}": ex for topic, ex in followups if ex},
+        answers=tuple((a, ANSWER_MEANS.get(a, a.replace("_", " "))) for a in names), documents=documents,
+        examples=with_approved({f"answer_wanted:{topic}": ex for topic, ex in followups if ex}, turn.deps.examples),
+        acting_for_policyholder=memory.identity.caller_role == "third_party",
+        figure_meanings=dict((await guidance(turn.deps, conn)).glossary) if verified else {},
     )
 
 
@@ -551,16 +597,21 @@ def _rank(e: BaseException) -> int:
     return 1
 
 
-async def _fill(deps: Deps, req: FormRequest, message: str, verified: bool) -> tuple[Form, StatedValues]:
+async def _fill(deps: Deps, req: FormRequest, message: str, verified: bool, *,
+                acting_for: bool = False) -> tuple[Form, StatedValues]:
     """The form, and the stated values: before verification the extractor runs alongside the filler; after it, only
-    when the caller quoted a claim number or the message asks more than one thing (it then also splits it)."""
+    when the caller quoted a claim number or the message asks more than one thing (it then also splits it), or when
+    a caller acting for the policyholder is read as asking about someone else's policy (whether they name a different
+    policyholder decides whether that is a different person)."""
     if verified:
         form = await deps.filler.fill(req)
+        identity = acting_for and confident_yes(form.other_person_policy, deps.thresholds)
         if yes(form.multi_question, deps.thresholds):  # one call also splits the message into its questions
-            return form, await deps.extractor.extract(message, want_identity=False, want_claim_number=yes(
+            return form, await deps.extractor.extract(message, want_identity=identity, want_claim_number=yes(
                 form.quoted_claim_number, deps.thresholds), want_parts=True)
-        if yes(form.quoted_claim_number, deps.thresholds):
-            return form, await deps.extractor.extract(message, want_identity=False, want_claim_number=True)
+        if yes(form.quoted_claim_number, deps.thresholds) or identity:
+            return form, await deps.extractor.extract(message, want_identity=identity, want_claim_number=yes(
+                form.quoted_claim_number, deps.thresholds))
         return form, StatedValues()
     results = await asyncio.gather(deps.filler.fill(req),
                                    deps.extractor.extract(message, want_identity=True, want_claim_number=True),
@@ -592,6 +643,8 @@ def _save_hints(memory: Memory, form: Form, stated: StatedValues, t: Thresholds)
         hints.claim_number = number
     need = picked(form.need, t)
     if need not in (None, "none"):
+        if hints.need != need:
+            hints.need_turn = memory.counters.turn_no
         hints.need = need
     if yes(form.wants_email_summary, t):
         hints.wants_email = True

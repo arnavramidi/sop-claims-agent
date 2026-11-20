@@ -125,7 +125,7 @@ async def test_r21_the_policy_number_needs_no_claim(deps, margaret):
 
 
 async def test_m6_a_hint_with_a_wrong_month_shows_the_nearest_matches(deps, conv):
-    r = await say(deps, conv, BRIEF_MSG, make_form(**GAVE, claim_statuses={"denied": 0.9}, claim_types={"healthcare": 0.9}, months={2: 0.6}, how_many="one"), BRIEF_SAID)
+    r = await say(deps, conv, BRIEF_MSG, make_form(**GAVE, claim_statuses={"denied": 0.9}, claim_types={"healthcare": 0.9}, months={2: 0.7}, how_many="one"), BRIEF_SAID)
     assert "nearest_matches" in instructions(r) and "CL-2048" in " ".join(f.text for f in facts(r))
 
 
@@ -452,7 +452,7 @@ async def test_f8_a_relaxed_match_above_the_limit_is_an_overview_not_a_long_list
 
 
 async def test_f8_a_nearest_list_never_claims_more_than_it_shows(deps, conv):
-    r = await say(deps, conv, BRIEF_MSG, make_form(**GAVE, claim_statuses={"denied": 0.9}, claim_types={"healthcare": 0.9}, months={2: 0.6}, how_many="one"), BRIEF_SAID)
+    r = await say(deps, conv, BRIEF_MSG, make_form(**GAVE, claim_statuses={"denied": 0.9}, claim_types={"healthcare": 0.9}, months={2: 0.7}, how_many="one"), BRIEF_SAID)
     part = next(p for p in parts(r) if p.instruction == "nearest_matches")
     assert "Nearest matches: 1" in [f.text for f in part.facts] and sum(1 for f in part.facts if f.claim) == 1
 

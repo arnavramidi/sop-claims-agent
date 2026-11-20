@@ -154,7 +154,7 @@ class _Wrapup:
         return self.stay(*parts, self.offer(), grounded=grounded)
 
 
-async def step(ctx: TurnContext) -> StepOutcome:
+async def _reply(ctx: TurnContext) -> StepOutcome:
     # Defence in depth: nothing is sent for a conversation the database has not verified.
     if ctx.conversation.verified_party_id is None:
         return StepOutcome(State.POST_PROCESS, handover=("rule", "not_verified"),
@@ -180,6 +180,36 @@ async def step(ctx: TurnContext) -> StepOutcome:
     if reply == "different_address":
         return w.different_address()
     return await w.something_else(unclear=reply in (None, "unclear"))
+
+
+async def _offer_as_worded(ctx: TurnContext, out: StepOutcome) -> str | None:
+    """The wording of the offer the caller is answering: the previous reply as it was sent; on the turn that makes
+    the offer, the offer's own text before the wording step."""
+    if ctx.entered_by_hop:
+        return next((p.plain for p in out.parts if p.instruction == "offer_email"), None)
+    row = await (await ctx.conn.execute(
+        "SELECT reply FROM turns WHERE conversation_id = %s AND turn_no = %s ORDER BY id DESC LIMIT 1",
+        [ctx.conversation.id, ctx.memory.counters.turn_no - 1])).fetchone()
+    return None if row is None else row[0]
+
+
+async def step(ctx: TurnContext) -> StepOutcome:
+    """The wrap-up step, with an event that records the offer, the caller's reply, the form's reading of it and what
+    was done (the rule that ended the step; for a sent summary, the email's text)."""
+    out = await _reply(ctx)
+    if ctx.conversation.verified_party_id is None:
+        return out
+    action = next((f["rule"] for f in reversed(out.fired) if f.get("rule") not in (None, "post_process")), None)
+    sent = next((f for f in out.fired if f.get("rule") == "email_sent"), None)
+    email = None
+    if sent is not None:
+        row = await (await ctx.conn.execute("SELECT body FROM outbox WHERE id = %s", [sent["outbox_id"]])).fetchone()
+        email = None if row is None else row[0]
+    reply = ctx.form.email_offer_reply
+    ctx.record("wrap_up", offer_as_worded=await _offer_as_worded(ctx, out), caller_reply=ctx.message,
+               form_value=None if reply is None else {"value": reply.value, "p": reply.p}, action=action,
+               email_text=email)
+    return out
 
 
 STEPS[State.POST_PROCESS] = step

@@ -1,0 +1,11 @@
+id: rambling_message_with_one_detail
+about: A long rambling message with one useful detail in it; the detail is used.
+group: blocked
+turns:
+  - say: "Margaret Chen here, and the last four of my SSN are 4472."
+    expect:
+      verified: none
+      held_kinds: [name, id]
+  - say: "So, honestly, it has been such a week. My neighbour's dog got out again, the car is making that noise, and my sister keeps calling about the holidays and whether we're doing it at her place this year or mine, which, honestly, I don't have the energy for. Anyway, somewhere in all of that I remembered you wanted more from me, and my date of birth is 1985-03-15, in case that helps. I also need to buy groceries, and the weather has been all over the place, but that's another story."
+    expect:
+      verified: P9

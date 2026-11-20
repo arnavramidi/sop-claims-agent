@@ -1,0 +1,20 @@
+id: claim_number_typed_loosely
+about: '"cl 2048", "CL2048" and "claim 2048" all find the claim; a transposed number finds nothing.'
+group: resolving
+turns:
+  - say: "Hi, this is Margaret Chen. My date of birth is 1985-03-15 and the last four of my SSN are 4472."
+    expect:
+      verified: P9
+  - say: "What's happening with cl 2048?"
+    expect:
+      focus: [CL-2048]
+  - say: "Sorry, one more time: what's the status of CL2048?"
+    expect:
+      focus: [CL-2048]
+  - say: "And for claim 2048, when is the deadline?"
+    expect:
+      focus: [CL-2048]
+  - say: "Wait, I actually meant claim CL-2084."
+    expect:
+      instructions: [claim_not_on_policy]
+      reply_lacks: ["CL-2084 (is|was|has)"]

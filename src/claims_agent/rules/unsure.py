@@ -128,10 +128,31 @@ async def _in_state(ctx: "TurnContext", name: str, field: Pick, *, same_first_an
     question = None if req is None else next((q for q in build_questions(req) if q.name == name), None)
     if question is None:  # no request for this turn to ask about: nothing but the caller can settle it
         readings = _ranked(field, field.options or ([field.value] if field.value else []))
-        return Resolved(None, (readings[0], readings[1]) if len(readings) >= 2 else None, ("ask_caller",))
-    return await resolve_pick(field, question, req, same_first_answer=same_first_answer, ruled_out=ruled_out,
-                              filler=ctx.deps.filler, settler=settler_for(ctx), t=ctx.deps.thresholds,
-                              budget=ctx.budget)
+        res = Resolved(None, (readings[0], readings[1]) if len(readings) >= 2 else None, ("ask_caller",))
+    else:
+        res = await resolve_pick(field, question, req, same_first_answer=same_first_answer, ruled_out=ruled_out,
+                                 filler=ctx.deps.filler, settler=settler_for(ctx), t=ctx.deps.thresholds,
+                                 budget=ctx.budget)
+    record(ctx, name, field, res)
+    return res
+
+
+def record(ctx: "TurnContext", name: str, field: Pick, res: Resolved) -> None:
+    """The events of an unsure pick: the field below its threshold and where it went, and each time it was passed on
+    to the larger model or to the caller."""
+    t = ctx.deps.thresholds
+    if picked(field, t) is not None:
+        return
+    went_to = "caller" if res.value is None else \
+        "larger_model" if res.steps and res.steps[-1] == "larger" else (res.steps[-1] if res.steps else "taken")
+    ctx.record("below_threshold", field=name, options=sorted(field.options), probabilities=dict(field.options),
+               threshold=t.pick_confident, went_to=went_to, transcript=None)
+    if "larger" in res.steps:
+        why = f"{name} was below its threshold and the cheaper steps did not settle it"
+        ctx.record("escalation", why=why, went_to="larger_model", transcript=None)
+    if res.value is None:
+        ctx.record("escalation", why=f"{name} was still unsure after every cheaper step"
+                   + (f" (the larger model: {res.larger})" if res.larger else ""), went_to="caller", transcript=None)
 
 
 async def need_in_focus(ctx: "TurnContext", claims: Sequence["Claim"]) -> Resolved:

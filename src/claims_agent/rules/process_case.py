@@ -18,10 +18,12 @@ import re
 from collections.abc import Sequence
 from datetime import date
 
+from claims_agent import prepared
 from claims_agent.answers.documents import norm
 from claims_agent.answers.facts import COMPARE_CLAIMS, AnswerResult, available, build, opening
-from claims_agent.answers.followups import exists_for, fill, next_followup
-from claims_agent.db.claims import Claim, ClaimFilter, fetch_ids
+from claims_agent.answers.followups import exists_for, fill, followup_candidates, next_followup
+from claims_agent.db.claims import (Claim, ClaimFilter, chosen_among, count, fetch_ids, filter_from_form,
+                                    find_numbered, with_need)
 from claims_agent.db.guidance import Guidance
 from claims_agent.engine import ANSWER_KINDS, STEPS, StepOutcome, TurnContext, guidance, offered_documents
 from claims_agent.form.read import confident_yes, picked, yes
@@ -30,7 +32,8 @@ from claims_agent.memory import Pending, RequestMemory
 from claims_agent.reply.brief import Fact, ReplyPart
 from claims_agent.rules import calculate, unsure
 from claims_agent.rules.every_message import PERSON_OFFER
-from claims_agent.rules.resolve_intent import GENERAL as GENERAL_NEED, destination_fact, sentences
+from claims_agent.rules.resolve_intent import (GENERAL as GENERAL_NEED, destination_fact, sentences,
+                                             wants_more_than_focus)
 from claims_agent.settings import Settings
 from claims_agent.states import State
 
@@ -125,6 +128,11 @@ def _named_in(message: str, document: str) -> bool:
     return bool(wanted) and re.search(rf"(?<!\w){re.escape(wanted)}(?!\w)", norm(message)) is not None
 
 
+def _named_in_part(message: str, document: str) -> bool:
+    """The caller's message holds a word of the document's name (a word of four letters or more), as a whole word."""
+    return any(len(w) >= 4 and _named_in(message, w) for w in norm(document).split())
+
+
 class _Case:
     def __init__(self, ctx: TurnContext, claims: list[Claim], g: Guidance):
         self.ctx, self.claims, self.g = ctx, claims, g
@@ -133,6 +141,7 @@ class _Case:
         self.request: RequestMemory = ctx.memory.section("request", State.PROCESS_CASE)
         self.topics = {f.topic: f for f in g.followups}
         self.fired: list[dict] = [{"rule": "process_case", "claims": [c.case_id for c in claims]}]
+        self.slot: prepared.Slot | None = None  # one follow-up for one claim: a prepared reply may answer it
 
     @property
     def need(self) -> str:
@@ -149,7 +158,11 @@ class _Case:
         if followup is not None and self.need not in followup.needs:
             self.fired.append({"mismatch": answer})
         self.fired.append({"rule": "answer", "answer": answer, "claims": [c.case_id for c in where]})
-        return self.finish(*_parts(self.results(answer, where), lead))
+        results = self.results(answer, where)
+        made = _parts(results, lead)
+        if followup is not None and not lead and len(where) == 1:
+            self.slot = prepared.Slot(where[0], answer, results[0], tuple(made[0]))
+        return self.finish(*made)
 
     def available(self, claim: Claim) -> list[str]:
         return available(claim, self.g, len(self.claims), self.s)
@@ -186,6 +199,11 @@ class _Case:
                 continue
             self.fired.append({"rule": "followup_offered", "need": self.need, "claim": c.case_id,
                                "answered": list(given), "declined": list(declined), "topic": f.topic})
+            candidates = [x.topic for x in followup_candidates(self.need, c, [*given, *declined], self.g, self.s)]
+            self.ctx.record("followup_choice", need=self.need, claim=c.case_id, answered=list(given),
+                            candidates=candidates, chosen=f.topic,
+                            why="the first candidate in order" if candidates[0] == f.topic else
+                            "the first candidate that is not waiting for another topic to be answered")
             fact = Fact("followup", f"Follow-up available for claim {c.case_id}: {_words(f.topic)}", c.case_id)
             return ReplyPart("offer_followup", (fact,), f"Would you like to hear about {_words(f.topic)} "
                              f"for claim {c.case_id}?", pending=Pending(
@@ -216,16 +234,55 @@ class _Case:
         if asked is None:
             return None
         form, t = self.form, self.t
-        if (yes(form.mentions_claim, t) or yes(form.quoted_claim_number, t)) \
-                and picked(form.search_relation, t) in SWITCHING:
+        # Entered by a hop, the claim the message is about has just been chosen: work it out over that claim.
+        if not self.ctx.entered_by_hop and ((yes(form.mentions_claim, t) or yes(form.quoted_claim_number, t))
+                                            and picked(form.search_relation, t) in SWITCHING
+                                            or await self.points_elsewhere()):
             return None
         calc, figures = asked
+        if calc == "days_left" and self.deadline_followup_asked():
+            return None  # the follow-up asked for gives the deadline with its days left, and what to do by then
         made, grounded = await calculate.parts(self.ctx, calc, figures, ClaimFilter(), self.claims,
                                                [c.case_id for c in self.claims])
         self.fired.append({"rule": "calculation", "calculation": calc, "figures": figures})
         if made and made[0].instruction == "ask_which_figure":
             return self.stay(made)
         return self.finish(made, grounded)
+
+    async def points_elsewhere(self) -> bool:
+        """Whether the message itself points at claims other than those in focus, however sure the fast model is that
+        it starts a new search: a claim number that names none of them; a description (only values the model is sure
+        the caller said, with the condition a confident need implies) that one of them does not fit, or that fits
+        more claims than are in focus when the caller means several or all; or more claims asked for than are in
+        focus ("all my claims", "my other claims")."""
+        ctx, conn, today = self.ctx, self.ctx.conn, self.today
+        ids = [c.case_id for c in self.claims]
+        number = (ctx.stated.claim_number or "").strip()
+        if number:  # a number that names another claim, or none: it is looked up (and said to be not on file)
+            named = {c.case_id for c in await find_numbered(conn, number, self.s.limits.claims_in_focus)}
+            if not named or not named <= set(ids):
+                return True
+        need = picked(self.form.need, self.t)
+        described = with_need(filter_from_form(self.form, self.t), need)  # "denied" means a denial reason on file
+        how_many = picked(self.form.how_many, self.t)
+        if not described.is_empty():
+            if len(await chosen_among(conn, described, today, ids)) < len(ids):
+                return True
+            return how_many in ("several", "all") and await count(conn, described, today) > len(ids)
+        return wants_more_than_focus(how_many, len(ids)) and await count(conn, ClaimFilter(), today) > len(ids)
+
+    def deadline_followup_asked(self) -> bool:
+        """The message confidently asks for a follow-up that carries the claim's deadline (settings mark it)."""
+        topic = picked(self.form.answer_wanted, self.t)
+        special = self.s.followups.special.get(topic or "")
+        return special is not None and special.with_deadline \
+            and any(topic in self.available(c) for c in self.claims)
+
+    def asks_about_a_figure(self) -> bool:
+        """The form is sure the caller asks about one of the money figures and wants nothing worked out with it: the
+        answer that gives the figures, each with its meaning on file, is the one asked for."""
+        figures = any(confident_yes(v, self.t) for v in self.form.figures.values())
+        return figures and calculate.wanted(self.ctx) is None and any("amounts" in self.available(c) for c in self.claims)
 
     # ---- entry -------------------------------------------------------------------------------------------------
 
@@ -240,7 +297,7 @@ class _Case:
                 for c in self.claims if note is not None and NOTE_HOLDS[note](c)]
         answer = picked(self.form.answer_wanted, self.t)
         if answer is not None and answer not in NOT_AN_ANSWER:
-            if not opening_covers(answer, self.need, note if lead else None, self.claims, self.s):
+            if not gives_opening(self.form, self.t, self.need, note, self.claims, self.s):
                 self.fired.append({"rule": "entered_with_a_question", "need": self.need, "answer": answer})
                 return self.give_answer(answer, lead)
             self.fired.append({"rule": "question_in_opening", "need": self.need, "answer": answer})
@@ -286,7 +343,10 @@ class _Case:
             self.fired.append({"rule": "offer_not_standing", "kind": pending.kind})
             return None
         self.fired.append({"rule": "followup_accepted", "claim": claim.case_id, "topic": f.topic})
-        return self.finish(*_parts(self.results(f.topic, [claim])))
+        results = self.results(f.topic, [claim])
+        made = _parts(results)
+        self.slot = prepared.Slot(claim, f.topic, results[0], tuple(made[0]))
+        return self.finish(*made)
 
     # ---- "I can't get it" ----------------------------------------------------------------------------------------
 
@@ -321,7 +381,11 @@ class _Case:
             return named
         if which == NOT_LISTED:
             return GENERAL
-        return on_file if len(on_file) == 1 else None
+        if len(on_file) == 1:
+            return on_file
+        # "the report" when only one outstanding document is a report: named by part of its name.
+        partly = [(c, d) for c, d in on_file if _named_in_part(self.ctx.message, d)]
+        return partly if partly and len({norm(d) for _, d in partly}) == 1 else None
 
     def ask_which_document(self) -> StepOutcome:
         """Several documents outstanding and none named: ask which, listing each as an answer the caller can hear."""
@@ -368,9 +432,11 @@ class _Case:
         # A different claim goes back to the claim-choosing state whatever the answer pick (it keeps the focus when
         # the message describes no other claim).
         mentions = yes(form.mentions_claim, t) or yes(form.quoted_claim_number, t)
-        if mentions and picked(form.search_relation, t) in SWITCHING:
+        if mentions and picked(form.search_relation, t) in SWITCHING or await self.points_elsewhere():
             return self.hop_back({"rule": "another_claim"})
         answer = picked(form.answer_wanted, t)
+        if answer in (None, "something_else", "none") and self.asks_about_a_figure():
+            answer = "amounts"
         if answer is None:  # unsure: the larger model first, the caller asked only when it settles nothing
             settled = await unsure.answer_wanted(self.ctx)
             self.fired += unsure.fired(settled)
@@ -412,8 +478,10 @@ async def step(ctx: TurnContext) -> StepOutcome:
     case = _Case(ctx, claims, await guidance(ctx.deps, ctx.conn))
 
     if ctx.entered_by_hop:
-        return await case.calculate() or case.entry()
-    return await case.offer_answered() or case.cant_get() or await case.calculate() or await case.asked()
+        out = await case.calculate() or case.entry()
+    else:
+        out = await case.offer_answered() or case.cant_get() or await case.calculate() or await case.asked()
+    return await prepared.serve(ctx, case.slot, out)  # a follow-up worded ahead, when it may be used
 
 
 STEPS[State.PROCESS_CASE] = step
@@ -430,3 +498,13 @@ def opening_covers(answer: str, need: str, note: str | None, claims: Sequence[Cl
     if note is not None and NOTE_EXPLAINS.get(note) == answer:
         return True
     return any(answer in opening(need, c, s) for c in claims)
+
+
+def gives_opening(form, t, need: str, note: str | None, claims: Sequence[Claim], s: Settings) -> bool:
+    """Whether entering with this need gives the claims' opening (their status, and the reason or documents the need
+    brings), rather than the one specific answer the message asked for in its place."""
+    answer = picked(form.answer_wanted, t)
+    if answer is None or answer in NOT_AN_ANSWER:
+        return True
+    holds = note in NOTE_TEXT and any(NOTE_HOLDS[note](c) for c in claims)
+    return opening_covers(answer, need, note if holds else None, claims, s)

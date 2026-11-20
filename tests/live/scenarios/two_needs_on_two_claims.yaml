@@ -1,0 +1,11 @@
+id: two_needs_on_two_claims
+about: '"Status of my auto claim, and why was my healthcare one denied?" is split, and each need is tied to its own claim.'
+group: processing
+turns:
+  - say: "Hi, this is Margaret Chen. My date of birth is 1985-03-15 and the last four of my SSN are 4472."
+    expect:
+      verified: P9
+  - say: "What's the status of my auto claim, and why was my healthcare one denied?"
+    expect:
+      reply_has: ["CL-2102", "CL-2048", "pathology"]
+      check_passed: true

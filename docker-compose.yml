@@ -42,6 +42,7 @@ services:
       BRAINTRUST_API_KEY: ${BRAINTRUST_API_KEY:-}
       ADMIN_DATABASE_URL: ${ADMIN_DATABASE_URL:-}
       SETTINGS_FILE: /app/settings.toml
+      HOSTED: ${HOSTED:-0}
     depends_on:
       setup:
         condition: service_completed_successfully

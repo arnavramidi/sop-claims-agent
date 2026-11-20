@@ -1,0 +1,72 @@
+[
+  {
+    "field": "answer_wanted",
+    "option": "submission_timing",
+    "message": "what's my cutoff for sending it"
+  },
+  {
+    "field": "answer_wanted",
+    "option": "submission_timing",
+    "message": "is there a last day to get my papers in"
+  },
+  {
+    "field": "answer_wanted",
+    "option": "processing_time_after_submission",
+    "message": "once you have everything how long until I hear back"
+  },
+  {
+    "field": "answer_wanted",
+    "option": "submission_method",
+    "message": "where do the papers go"
+  },
+  {
+    "field": "answer_wanted",
+    "option": "receipt_confirmation",
+    "message": "how will I know you received my papers"
+  },
+  {
+    "field": "answer_wanted",
+    "option": "denial_reason",
+    "message": "why did you turn it down"
+  },
+  {
+    "field": "answer_wanted",
+    "option": "appeal_deadline",
+    "message": "how long do I have to fight this decision"
+  },
+  {
+    "field": "answer_wanted",
+    "option": "documents_needed",
+    "message": "what paperwork are you still waiting on from me"
+  },
+  {
+    "field": "answer_wanted",
+    "option": "status",
+    "message": "where are things at with my claim"
+  },
+  {
+    "field": "need",
+    "option": "next_steps",
+    "message": "so what happens now"
+  },
+  {
+    "field": "mood",
+    "option": "upset",
+    "message": "this is the third time I have had to explain this"
+  },
+  {
+    "field": "about",
+    "option": "unsupported_insurance",
+    "message": "can I add my wife to my plan"
+  },
+  {
+    "field": "email_offer_reply",
+    "option": "send",
+    "message": "sure, mail it over"
+  },
+  {
+    "field": "email_offer_reply",
+    "option": "dont_send",
+    "message": "nah I'm good without it"
+  }
+]

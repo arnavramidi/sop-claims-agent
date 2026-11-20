@@ -1,0 +1,20 @@
+id: representative_waits_for_consent
+about: A listed representative says "hold on, I'm texting her" (no consent check used), then "she approved, check again" (one check, approved, verified).
+group: consent
+consent_script: default
+turns:
+  - say: "Hi, I'm David Chen, I'm calling for my mother, Margaret Chen. Her date of birth is 1985-03-15, her policy is POL-9921 and her SSN ends in 4472."
+    expect:
+      state: AWAIT_CONSENT
+      verified: none
+      consent_checks: 1
+  - say: "Hold on, I'm texting her now."
+    expect:
+      state: AWAIT_CONSENT
+      verified: none
+      consent_checks: 1
+  - say: "She says she approved it. Can you check again?"
+    expect:
+      verified: P9
+      consent_checks: 2
+      state: [RESOLVE_INTENT, PROCESS_CASE]

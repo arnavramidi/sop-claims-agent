@@ -1,0 +1,15 @@
+id: very_long_pasted_message
+about: A very long pasted message is handled without an error.
+group: language
+turns:
+  - say: "Margaret Chen, date of birth 1985-03-15."
+    expect:
+      verified: none
+      held_kinds: [name, dob]
+  - say: "Here is the letter I got, pasted in full: Dear member, we are writing to let you know about a recent decision on your claim. Please read this letter carefully and keep it for your records. If you have questions, contact us. This letter explains the review and what you may do next."
+    repeat: 30
+    expect:
+      flags: [message_cut]
+      handed_over: false
+      state: VERIFY_ID
+      check_passed: true

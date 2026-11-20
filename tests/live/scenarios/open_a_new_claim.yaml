@@ -1,0 +1,12 @@
+id: open_a_new_claim
+about: '"I just crashed my car, open a claim" is not something the agent can do: it says so and offers a person, and hands over on a yes.'
+group: resolving
+turns:
+  - say: "I just crashed my car. Can you open a new claim for me?"
+    expect:
+      instructions: [unsupported_offer_person]
+      handed_over: false
+      reply_has: ["person|someone|representative|colleague|team"]
+  - say: "Yes, please."
+    expect:
+      handed_over: true

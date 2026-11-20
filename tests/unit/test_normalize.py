@@ -5,7 +5,7 @@ from helpers import stated
 
 
 def test_v10_name_orderings():
-    assert "yawenli" in name_candidates("Li Ya Wen") and "yawenli" in name_candidates("Yawen Li")
+    assert "ya wen li" in name_candidates("Li Ya Wen") and "yawen li" in name_candidates("Yawen Li")
 
 
 def test_v7_both_date_readings_are_kept():
@@ -32,13 +32,13 @@ def test_r18_claim_number_key(): assert claim_number_key("cl 2048") == claim_num
 
 
 def test_names_beyond_four_words_are_as_typed_and_reversed():
-    assert name_candidates("A B C D E") == ("abcde", "edcba")
+    assert name_candidates("A B C D E") == ("a b c d e", "e d c b a")
     assert len(name_candidates("Ann Bo Cy Di")) == 24
     assert name_candidates("  ,  ") == ()
 
 
 def test_name_keeps_letters_only_and_lower_cases():
-    assert name_candidates("O'Neil, José") == ("oneiljosé", "joséoneil")
+    assert name_candidates("O'Neil, José") == ("oneil josé", "josé oneil")
 
 
 def test_a_real_reading_beside_an_impossible_one_is_no_format_failure():

@@ -1,0 +1,12 @@
+id: if_everything_pays_out
+about: '"How much will I get if everything pays out?" gives the expected figures labelled as expected, and promises nothing.'
+group: arithmetic
+turns:
+  - say: "Hi, this is Margaret Chen. My date of birth is 1985-03-15 and the last four of my SSN are 4472."
+    expect:
+      verified: P9
+  - say: "How much will I get in total if everything pays out?"
+    expect:
+      reply_has: ["expected"]
+      reply_lacks: ["you will (get|receive)", "guarantee", "out[- ]of[- ]pocket"]
+      check_passed: true

@@ -15,7 +15,7 @@ from typing import Any
 from uuid import UUID
 
 import psycopg
-from fastapi import FastAPI, Path as PathParam, Request
+from fastapi import BackgroundTasks, FastAPI, Path as PathParam, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import FileResponse, JSONResponse
 from psycopg import AsyncConnection
@@ -23,11 +23,12 @@ from psycopg_pool import PoolTimeout
 from pydantic import BaseModel, ConfigDict, Field, StrictInt, StrictStr, field_validator
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
-from claims_agent import admin
+from claims_agent import admin, hosted, prepared
 from claims_agent.db import conversations as store
 from claims_agent.db.guidance import load_guidance
 from claims_agent.db.pool import AppDb
 from claims_agent.engine import Deps, TurnFailed, run_turn
+from claims_agent.examples import startup_examples
 from claims_agent.form.decisions_filler import DecisionsFiller
 from claims_agent.form.settle import ModelSettler
 from claims_agent.form.switching import build_switching_filler
@@ -36,6 +37,7 @@ from claims_agent.inspect import mask_all
 from claims_agent.models.client import make_client
 from claims_agent.models.errors import ModelAccountProblem, ModelKeyRejected, ModelNotPermitted
 from claims_agent.observability import make_turn_log, safe_feedback
+from claims_agent.records import events_of, with_events
 from claims_agent.reply.wording import ModelWording
 from claims_agent.settings import Settings, load_settings, load_thresholds
 
@@ -73,7 +75,12 @@ ERRORS: dict[str, tuple[int, str]] = {
     "database_unavailable": (503, "The database could not be reached. Check that it is running."),
     "http_error": (400, "The request could not be handled."),
     "internal_error": (500, "Something went wrong on the server."),
+    "model_key_needed": (401, "Enter a model key to start."),
+    "model_key_invalid": (401, "That is not a model key this page can use. Check it, then enter it again."),
+    "rate_limited": (429, "Too many requests from this address. Wait a minute, then try again."),
 }
+# Hosted mode: the key a model refused is the visitor's own, not the server's setting.
+HOSTED_KEY_REJECTED = "The model key was rejected. Check the key, then enter it again."
 
 
 class ApiError(Exception):
@@ -163,7 +170,8 @@ async def _real_deps() -> Deps:
     filler, extractor, wording = model_clients(s)
     return Deps(settings=s, thresholds=load_thresholds(), db=db, guidance=guidance, filler=filler,
                 extractor=extractor, wording=wording, settler=model_settler(s),
-                turn_log=make_turn_log(s, os.environ.get("BRAINTRUST_API_KEY")))
+                turn_log=make_turn_log(s, os.environ.get("BRAINTRUST_API_KEY")),
+                examples=await startup_examples(s, os.environ.get("BRAINTRUST_API_KEY"), db))
 
 
 def model_settler(s: Settings) -> Any:
@@ -172,6 +180,27 @@ def model_settler(s: Settings) -> Any:
         return _NoKey()
     return ModelSettler(make_client(), s.models.larger, retries=s.limits.model_retries,
                         timeout=s.limits.model_timeout_seconds)
+
+
+async def hosted_deps() -> Deps:
+    """Hosted mode's dependencies: no model client of the server's own (each message request builds its clients from
+    the visitor's key), nothing prepared in the background, and Braintrust only when its owner opted in."""
+    s = load_settings()
+    db = AppDb(os.environ["DATABASE_URL"])
+    async with db.conversation(None) as conn:
+        guidance = await load_guidance(conn)
+    stand_in = _NoKey()  # reached only if a model call were ever made outside a message request
+    braintrust = hosted.braintrust_key(os.environ)
+    logger.info("hosted mode: model keys come from each message request; prepared replies and the claim-change "
+                "control are off")
+    return hosted.lock_down(Deps(settings=s, thresholds=load_thresholds(), db=db, guidance=guidance, filler=stand_in,
+                                 extractor=stand_in, wording=stand_in, settler=stand_in,
+                                 turn_log=make_turn_log(s, braintrust),
+                                 examples=await startup_examples(s, braintrust, db)))
+
+
+async def _hosted_key_rejected(request: Request, exc: Exception):
+    return JSONResponse({"error": "model_key_rejected", "message": HOSTED_KEY_REJECTED}, status_code=401)
 
 
 # ---- the request body cap ---------------------------------------------------------------------------------------
@@ -280,16 +309,25 @@ def _page(name: str, media_type: str):
     return serve
 
 
-def create_app(deps: Deps | None = None, admin_database_url: str | None = None) -> FastAPI:
+def create_app(deps: Deps | None = None, admin_database_url: str | None = None, hosted_mode: bool | None = None) -> FastAPI:
     """The app. With no `deps`, real ones are built at startup from the environment (guidance loaded once).
     The demo control that changes a claim exists only with an admin database address (the argument, else
-    ADMIN_DATABASE_URL); without one its route does not exist."""
+    ADMIN_DATABASE_URL); without one its route does not exist.
+    Hosted mode (the argument, else HOSTED=1) is described in claims_agent.hosted: it refuses to start on anything but
+    the sample data, and its demo control never exists."""
     admin_url = (admin_database_url if admin_database_url is not None else os.environ.get("ADMIN_DATABASE_URL")) or None
+    is_hosted = hosted.is_hosted(os.environ) if hosted_mode is None else hosted_mode
+    if is_hosted:
+        hosted.require_sample_data(deps.settings if deps is not None else load_settings(), os.environ)
+        if admin_url is not None:
+            logger.warning("hosted mode: ADMIN_DATABASE_URL is ignored; the claim-change control is off")
+        admin_url = None
+        deps = hosted.lock_down(deps) if deps is not None else None
     @asynccontextmanager
     async def lifespan(app: FastAPI):
         owned = app.state.deps is None
         if owned:
-            app.state.deps = await _real_deps()
+            app.state.deps = await (hosted_deps() if is_hosted else _real_deps())
         try:
             yield
         finally:
@@ -302,11 +340,32 @@ def create_app(deps: Deps | None = None, admin_database_url: str | None = None) 
         ModelNotPermitted: _fixed("model_not_permitted"), TurnFailed: _fixed("turn_failed"),
         PoolTimeout: _pool_timeout, psycopg.OperationalError: _db_down, Exception: _unexpected,
     })
+    if is_hosted:
+        app.add_exception_handler(ModelKeyRejected, _hosted_key_rejected)
     app.state.deps = deps
     app.add_middleware(BodyLimit, max_bytes=MAX_BODY_BYTES)
 
     def d(request: Request) -> Deps:
         return request.app.state.deps
+
+    limits = (deps.settings if deps is not None else load_settings()).hosted
+    starts = hosted.RateLimiter(limits.conversations_per_minute, limits.tracked_addresses)
+    sends = hosted.RateLimiter(limits.messages_per_minute, limits.tracked_addresses)
+
+    def visitor_limit(request: Request, limiter: hosted.RateLimiter) -> None:
+        """Hosted mode: refuse a visitor address over its limit (nothing else is read first)."""
+        address = hosted.visitor_address(request.headers, request.client.host if request.client else None,
+                                         os.environ.get(hosted.CLIENT_ADDRESS_HEADER))
+        if not limiter.allow(address):
+            raise ApiError("rate_limited")
+
+    def visitor_key(request: Request) -> hosted.ModelKey:
+        """Hosted mode: the visitor's key from this request's header, or the fixed 401."""
+        try:
+            return hosted.read_key(request.headers.getlist(hosted.HEADER), d(request).settings.hosted.max_key_chars)
+        except hosted.KeyRefused as e:
+            code = e.code
+        raise ApiError(code)  # outside the handler: the error carries no context
 
     app.get("/")(_page("index.html", "text/html; charset=utf-8"))
     app.get("/app.js")(_page("app.js", "text/javascript; charset=utf-8"))
@@ -325,11 +384,13 @@ def create_app(deps: Deps | None = None, admin_database_url: str | None = None) 
                 "SELECT level, file, ref, field, reason FROM load_report ORDER BY id")).fetchall()
         return {"consent_scripts": scripts,
                 "load_report": [dict(zip(("level", "file", "ref", "field", "reason"), r)) for r in report],
-                "filler": deps.filler.name, "admin": admin_url is not None}
+                "filler": deps.filler.name, "admin": admin_url is not None, "hosted": is_hosted}
 
     @app.post("/api/conversations")
     async def create(request: Request, body: ControlsBody) -> dict:
         deps = d(request)
+        if is_hosted:
+            visitor_limit(request, starts)
         today = _today(body.today)
         script = body.consent_script if body.consent_script is not None else "default"
         async with deps.db.conversation(None) as conn:
@@ -343,22 +404,34 @@ def create_app(deps: Deps | None = None, admin_database_url: str | None = None) 
         async with deps.db.conversation(conversation_id) as conn:
             state, script, today = await _row(conn, conversation_id)
             turns = await store.transcript(conn, conversation_id)
+            events = await events_of(conn, conversation_id)
         return {"state": state,
                 "turns": [{"turn_no": t["turn_no"], "message": t["message"], "reply": t["reply"],
-                           "state_after": t["state_after"], "inspector": t["record"], "turn_id": t["id"]}
+                           "state_after": t["state_after"], "inspector": with_events(t["record"], events.get(t["turn_no"])),
+                           "turn_id": t["id"]}
                           for t in turns],
                 "controls": _controls(deps.settings, script, today)}
 
     @app.post("/api/conversations/{conversation_id}/messages")
-    async def message(request: Request, conversation_id: UUID, body: MessageBody) -> dict:
+    async def message(request: Request, conversation_id: UUID, body: MessageBody,
+                      background: BackgroundTasks) -> dict:
         deps = d(request)
+        key = None
+        if is_hosted:
+            visitor_limit(request, sends)
+            key = visitor_key(request)
         if len(body.text) > deps.settings.limits.message_chars:
             raise ApiError("message_too_long")
         if not body.text.strip():
             raise ApiError("empty_message")
         async with deps.db.conversation(conversation_id) as conn:
             await _row(conn, conversation_id)
-        result = await run_turn(deps, conversation_id, body.text)
+        if key is None:
+            result = await run_turn(deps, conversation_id, body.text)
+            prepared.schedule(background, deps, conversation_id, result.state)  # runs after the response is sent
+        else:
+            async with hosted.request_deps(deps, key) as turn_deps:  # the key's clients live for this turn only
+                result = await run_turn(turn_deps, conversation_id, body.text)
         return {"turn_id": result.turn_id, "reply": result.reply, "state": result.state.value,
                 "inspector": result.inspector}
 

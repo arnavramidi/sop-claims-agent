@@ -1,0 +1,16 @@
+id: which_email_is_on_file
+about: '"Which email do you have for me?" before and after verification: the address is never read out, not even masked.'
+group: identity
+turns:
+  - say: "Which email address do you have on file for me?"
+    expect:
+      verified: none
+      reply_lacks: ["@", "margaret", "\\*\\*", "email\\.com", "\\bm\\*"]
+  - say: "OK. I'm Margaret Chen, born 1985-03-15, SSN ends in 4472."
+    expect:
+      verified: P9
+  - say: "Now that I'm verified, which email address do you have for me?"
+    expect:
+      verified: P9
+      reply_lacks: ["@", "margaret", "\\*\\*", "email\\.com", "\\bm\\*"]
+      check_passed: true

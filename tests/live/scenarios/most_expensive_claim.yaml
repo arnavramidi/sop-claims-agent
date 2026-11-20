@@ -1,0 +1,17 @@
+id: most_expensive_claim
+about: '"My most expensive claim" and "the top half of my claims" ask which of the money figures is meant, and invent no out-of-pocket figure.'
+group: arithmetic
+turns:
+  - say: "Hi, this is Margaret Chen. My date of birth is 1985-03-15 and the last four of my SSN are 4472."
+    expect:
+      verified: P9
+  - say: "Which is my most expensive claim?"
+    expect:
+      instructions: [ask_which_figure]
+      reply_lacks: ["out[- ]of[- ]pocket"]
+      check_passed: true
+  - say: "Actually, what about the top half of my claims?"
+    expect:
+      instructions: [ask_which_figure]
+      reply_lacks: ["out[- ]of[- ]pocket"]
+      check_passed: true

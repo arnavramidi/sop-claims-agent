@@ -1,0 +1,22 @@
+id: owed_appeal_and_why_that_amount
+about: '"What do I owe?", "what will I get if I appeal?" and "why 780 and not 800?" are not on file: no figure or reason is invented, and the figure''s meaning from the glossary is kept.'
+group: processing
+turns:
+  - say: "Hi, this is Margaret Chen. My date of birth is 1985-03-15 and the last four of my SSN are 4472."
+    expect:
+      verified: P9
+  - say: "What do I owe on my denied healthcare claim?"
+    expect:
+      focus: [CL-2048]
+      reply_has: ["(don['’]t|do not) have|not on file|not available|no information"]
+      check_passed: true
+  - say: "And what will I get if I appeal?"
+    expect:
+      reply_has: ["(don['’]t|do not) have|not on file|not available|no information"]
+      check_passed: true
+  - say: "On my older healthcare claim, CL-2011: why was I paid 780 and not 800?"
+    expect:
+      focus: [CL-2011]
+      reply_lacks: ["deductible", "co-?pay", "coinsurance", "because (of )?(your|the) (plan|policy)"]
+      reply_has: ["expected|maximum|in-network|fee schedule"]
+      check_passed: true

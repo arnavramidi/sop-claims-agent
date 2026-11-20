@@ -27,18 +27,37 @@ BEGIN
   RETURN p_conversation;
 END $$;
 
--- True when a stated name candidate equals the stored name, or (stored name of six letters or more) is
--- one inserted, deleted or substituted letter away (Ruling 14). Both sides are lower-cased and kept to
--- letters only, under a fixed Unicode collation so the result does not depend on the database's locale.
+-- THE NAME-WORD RULE, one rule in two places: here and name_words in src/claims_agent/identity/normalize.py (read the
+-- full statement there). Lower-cased under a fixed Unicode collation; apostrophes dropped ("O'Neil" is one word);
+-- every other character that is not a letter separates words ("Mary-Jane O'Neil" is three words, "MargaretChen" one).
+CREATE FUNCTION name_words(name text) RETURNS text[]
+  LANGUAGE sql IMMUTABLE PARALLEL SAFE
+  SET search_path = pg_catalog, public, pg_temp AS $$
+  SELECT coalesce(array_agg(w ORDER BY n) FILTER (WHERE w <> ''), '{}')
+  FROM regexp_split_to_table(regexp_replace(lower(name COLLATE pg_c_utf8), '[''’ʼ]', '', 'g'),
+                             '[^[:alpha:]]+') WITH ORDINALITY AS t(w, n)
+$$;
+
+-- True when a stated name candidate is the stored name (Ruling 14: or, for a stored name of six letters or more, one
+-- inserted, deleted or substituted letter away, the words' letters compared run together). A candidate is compared
+-- at all only when it is WHOLE (two or more words that are not initials), or SINGLE (one word that is not an
+-- initial) against a stored name that is itself single. So a full name typed as one token never matches a two-word
+-- name on file, whatever the caller of this function sends; the calling code holds and counts exactly what is
+-- compared here.
 CREATE FUNCTION name_matches(candidates text[], stored text) RETURNS boolean
   LANGUAGE sql IMMUTABLE PARALLEL SAFE
   SET search_path = pg_catalog, public, pg_temp AS $$
-  WITH s AS (SELECT regexp_replace(lower(stored COLLATE pg_c_utf8), '[^[:alpha:]]', '', 'g') AS key),
-       c AS (SELECT regexp_replace(lower(x COLLATE pg_c_utf8), '[^[:alpha:]]', '', 'g') AS key
-             FROM unnest(candidates) AS x)
+  WITH s AS (SELECT array_to_string(w, '') AS key,
+                    cardinality(w) = 1 AND length(w[1]) > 1 AS single
+             FROM (SELECT public.name_words(stored) AS w) x),
+       c AS (SELECT array_to_string(w, '') AS key,
+                    (SELECT count(*) FROM unnest(w) AS v WHERE length(v) > 1) >= 2 AS whole,
+                    cardinality(w) = 1 AND length(w[1]) > 1 AS single
+             FROM (SELECT public.name_words(x) AS w FROM unnest(candidates) AS x) y)
   SELECT EXISTS (
     SELECT 1 FROM s, c
     WHERE s.key <> '' AND c.key <> ''
+      AND (c.whole OR (c.single AND s.single))
       AND (c.key = s.key
            OR CASE WHEN length(s.key) >= 6 AND length(s.key) <= 255 AND length(c.key) <= 255
                         AND abs(length(c.key) - length(s.key)) <= 1
@@ -260,6 +279,7 @@ END $$;
 
 -- Closed by default already; stated again per function, then opened to the server's account only.
 REVOKE ALL ON FUNCTION bound_conversation(uuid) FROM PUBLIC;
+REVOKE ALL ON FUNCTION name_words(text) FROM PUBLIC;
 REVOKE ALL ON FUNCTION name_matches(text[], text) FROM PUBLIC;
 REVOKE ALL ON FUNCTION match_identity(text[], date[], text, text, text, text) FROM PUBLIC;
 REVOKE ALL ON FUNCTION bind_policyholder(uuid, text, text[], date[], text, text, text, text) FROM PUBLIC;

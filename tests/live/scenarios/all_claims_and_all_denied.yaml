@@ -1,0 +1,17 @@
+id: all_claims_and_all_denied
+about: '"All my claims" and then "all my denied claims" are answered without asking which claim.'
+group: resolving
+turns:
+  - say: "Hi, this is Margaret Chen. My date of birth is 1985-03-15 and the last four of my SSN are 4472."
+    expect:
+      verified: P9
+  - say: "Can you give me the status of all my claims?"
+    expect:
+      instructions_lack: [which_claim]
+      focus: [CL-2048, CL-2011, CL-1899, CL-2102]
+      reply_has: ["CL-2048", "CL-2011", "CL-1899", "CL-2102"]
+  - say: "And what about all my denied claims?"
+    expect:
+      instructions_lack: [which_claim]
+      focus: [CL-2048]
+      reply_has: ["CL-2048"]

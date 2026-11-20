@@ -14,10 +14,11 @@ from claims_agent.db.identity import bind_policyholder, match_identity, request_
 from claims_agent.engine import STEPS, StepOutcome, TurnContext
 from claims_agent.form.fields import StatedValues
 from claims_agent.form.read import confident_yes, picked, yes
-from claims_agent.identity.normalize import name_candidates, normalise
+from claims_agent.identity.normalize import is_single_name, is_whole_name, name_candidates, name_words, normalise
 from claims_agent.identity.types import KINDS, StatedIdentity
 from claims_agent.identity.verify import KINDS_NEEDED, judge
 from claims_agent.memory import HeldValue, IdentityMemory
+from claims_agent.records import flag_corrected
 from claims_agent.reply.brief import Fact, ReplyPart
 from claims_agent.rules.every_message import PERSON_OFFER
 from claims_agent.states import State
@@ -48,6 +49,14 @@ def _gave_a_value(v: StatedValues) -> bool:
                                            v.date_of_birth_as_stated)) or any(d.strip() for d in v.date_of_birth)
 
 
+def _given(v: StatedValues) -> dict[str, str]:
+    """Each identity value the extractor found in this message, as stated, by kind."""
+    dob = (v.date_of_birth_as_stated or "").strip() or ", ".join(d.strip() for d in v.date_of_birth if d.strip())
+    given = {"name": v.policyholder_name, "dob": dob, "phone": v.phone, "email": v.email, "id": v.id_digits,
+             "policy": v.policy_number}
+    return {kind: value.strip() for kind, value in given.items() if (value or "").strip()}
+
+
 def _values(v: StatedValues, s: StatedIdentity) -> dict[str, tuple[str, str]]:
     """Each well-formed value of this message: kind -> (as stated, normalised key). A name's key ignores word order
     and a date's key lists its readings, so saying the same value again is the same value."""
@@ -69,7 +78,7 @@ def _values(v: StatedValues, s: StatedIdentity) -> dict[str, tuple[str, str]]:
 
 
 def held_identity(held: dict[str, HeldValue]) -> StatedIdentity:
-    """Everything held so far, latest per kind, ready for the database to compare."""
+    """Everything held so far, latest per kind, ready for the database to compare. Only what is held is ever sent."""
     def key(kind: str) -> str | None:
         return held[kind].key if kind in held else None
     return StatedIdentity(
@@ -121,23 +130,52 @@ async def step(ctx: TurnContext) -> StepOutcome:
 
     # 2 and 3. Format checks, then merge, latest value per kind. A value that fails its format check is asked for
     # again and is never held, so it can never count as a wrong value.
+    failed_kinds: set[str] = set()
     if counted:
         stated_identity, failures = normalise(said)
+        failed_kinds = {f.kind for f in failures}
         partial = form.partial_detail is not None and confident_yes(form.partial_detail, t)
-        if partial and failures:
+        # A part of a detail is told by its shape (some digits, a year, one word of a name), whatever the model read;
+        # part of a name after a full name of two words or more is held is not a new detail at all.
+        whole_held = "name" in ident.held and is_whole_name(ident.held["name"].as_stated)
+        failures = [f for f in failures if not (f.kind == "name" and whole_held)]
+        # A one-word name given again, after the same word was asked for in full, is the caller's whole name (a
+        # customer whose name on file is one word): held, compared, and counted when wrong like any other value.
+        insisted = next((f for f in failures if f.kind == "name" and is_single_name(f.as_stated)
+                         and ident.part_of_name is not None
+                         and name_words(f.as_stated) == name_words(ident.part_of_name.as_stated)), None)
+        if insisted is not None:
+            failures.remove(insisted)
+            failed_kinds.discard("name")
+        in_part = [f for f in failures if f.partial or partial]
+        if in_part:
             parts.append(ReplyPart("ask_full_value",
-                                   tuple(Fact("detail_to_complete", AGAIN[f.kind]) for f in failures),
+                                   tuple(Fact("detail_to_complete", AGAIN[f.kind]) for f in in_part),
                                    "It sounds like that was only part of a detail. Could you give the whole of it?"))
-        elif failures:
-            parts += [ReplyPart("restate_value", (Fact("detail_to_restate", AGAIN[f.kind]),),
-                                f"Sorry, I couldn't use that. Could you give {AGAIN[f.kind]} again?")
-                      for f in failures]
+        parts += [ReplyPart("restate_value", (Fact("detail_to_restate", AGAIN[f.kind]),),
+                            f"Sorry, I couldn't use that. Could you give {AGAIN[f.kind]} again?")
+                  for f in failures if f not in in_part]
+        ident.part_of_name = next((HeldValue(as_stated=f.as_stated, key=f.as_stated, turn=ctx.memory.counters.turn_no)
+                                   for f in failures if f.kind == "name"), ident.part_of_name)
         # Every value that passed its format check is kept, whatever the model thought of the message as a whole:
         # "SSN last four is 4472" is a complete detail even though it reads like part of one.
-        for kind, (as_stated, key) in _values(said, stated_identity).items():
+        correcting = form.correcting_detail is not None and yes(form.correcting_detail, t)
+        values = _values(said, stated_identity)
+        for kind, (as_stated, key) in values.items():
+            if correcting and kind in ident.held and ident.held[kind].turn < ctx.memory.counters.turn_no:
+                await flag_corrected(conn, cid, ident.held[kind].turn, kind)  # the earlier reading was wrong
             ident.held[kind] = HeldValue(as_stated=as_stated, key=key, turn=ctx.memory.counters.turn_no)
+        if insisted is not None:
+            ident.held["name"] = HeldValue(as_stated=insisted.as_stated, key=min(name_candidates(insisted.as_stated)),
+                                           turn=ctx.memory.counters.turn_no)
+        if insisted is not None or "name" in values:  # a name held this turn ends the wait for the whole name
+            ident.part_of_name = None
         if (said.caller_name or "").strip():
             ident.caller_name = said.caller_name.strip()
+    for kind, value in _given(said).items():
+        flags_here = [name for name, on in (("format_failed", kind in failed_kinds), ("cross_check_failed", not counted))
+                      if on]
+        ctx.record("extraction", kind=kind, value=value, message=ctx.message, flags=flags_here)
     role = picked(form.caller_role, t) if form.caller_role is not None else None
     if role in ("policyholder", "third_party"):
         ident.caller_role = role
@@ -146,6 +184,9 @@ async def step(ctx: TurnContext) -> StepOutcome:
         ident.relationship = relationship
 
     # 4. Ask the database what matches, judge it, count each distinct wrong value once.
+    # THE INVARIANT: every value is either asked for again and never sent to the database (a part of a detail, a
+    # malformed one: never held), or held, sent, and counted below when it does not match. No value is compared
+    # without being counted, so no detail can be guessed without limit.
     asked = held_identity(ident.held)
     matches = await match_identity(conn, asked)
     decision = judge(frozenset(ident.held), matches)

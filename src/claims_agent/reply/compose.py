@@ -15,7 +15,7 @@ from claims_agent.settings import Settings
 @dataclass(frozen=True)
 class Composed:
     text: str
-    source: Literal["live", "rewrite", "template", "fixed", "last_resort"]
+    source: Literal["live", "rewrite", "template", "fixed", "last_resort", "prepared"]
     checks: tuple[CheckResult, ...]
 
 
@@ -40,6 +40,11 @@ async def compose(brief: ReplyBrief, wording: Wording, s: Settings, data_statuse
 
     if fixed:
         return plain("fixed", ())
+    if any(p.prepared for p in brief.parts):  # worded ahead: sent as it stands, any other part as its plain text
+        text = "\n\n".join(p.prepared or p.plain for p in brief.parts if p.prepared or p.plain)
+        r = check(text)
+        if r.passed:
+            return Composed(text, "prepared", (r,))
     first = await wording.word(brief)
     r1 = check(first)
     if r1.passed:

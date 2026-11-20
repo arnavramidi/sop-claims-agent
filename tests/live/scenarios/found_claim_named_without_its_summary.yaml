@@ -1,0 +1,17 @@
+id: found_claim_named_without_its_summary
+about: The opening names the claim found (number, type, date) and goes on to its status and denial reason, without first quoting a summary that repeats them.
+group: resolving
+dataset: starter
+today: 2026-03-05
+turns:
+  - say: "Hi, this is Margaret Chen. My date of birth is 1985-03-15 and the last four of my SSN are 4472."
+    expect:
+      verified: P9
+  - say: "Why was my healthcare claim from January denied?"
+    expect:
+      focus: [CL-2048]
+      instructions: [found_claim]
+      facts_have: ["Claim CL-2048: healthcare, opened 2026-01-12\\.(\\n|$)"]
+      reply_has: ["CL-2048", "pathology report"]
+      reply_lacks: ["summary"]
+      check_passed: true

@@ -79,3 +79,4 @@ class Form(BaseModel):
     calculation: Pick = Field(default_factory=Pick)
     figures: dict[str, YesNo] = Field(default_factory=dict)
     no_figure_said: YesNo = Field(default_factory=lambda: YesNo(p=0.0))
+    other_than_represented: YesNo | None = None  # asked only of a caller acting for a policyholder

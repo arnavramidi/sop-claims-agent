@@ -19,6 +19,7 @@ class ReplyPart:
     facts: tuple[Fact, ...] = ()
     plain: str = ""
     pending: Pending | None = None
+    prepared: str = ""  # a reply to this part worded ahead and checked (see claims_agent.prepared)
 
 
 @dataclass(frozen=True)

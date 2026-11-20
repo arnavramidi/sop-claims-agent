@@ -1,0 +1,18 @@
+id: verified_in_one_message
+about: The assignment's test message verifies the caller and answers the remembered denied-healthcare-January claim in the same turn.
+group: memory
+dataset: starter
+today: 2026-03-05
+consent_script: default
+turns:
+  - say: "I'm the policyholder. My name is Margaret Chen, policy POL-9921. I'm calling about my denied healthcare claim from January. DOB is 1985-03-15, SSN last four is 4472."
+    expect:
+      state: PROCESS_CASE
+      verified: P9
+      focus: [CL-2048]
+      answers: [status, denial_reason, documents_needed, appeal_deadline]
+      instructions_lack: [ask_need, which_claim]
+      reply_has: ["pathology report", "office note"]
+      reply_lacks: ["CL-2011", "approved"]
+      check_passed: true
+      no_claim_data_before_verification: true

@@ -14,7 +14,7 @@ from typing import Literal
 from psycopg import AsyncConnection
 
 from claims_agent.form.fields import Form, ListedClaim
-from claims_agent.form.read import picked, yes
+from claims_agent.form.read import confident_yes, picked, yes
 from claims_agent.identity.normalize import claim_number_key
 from claims_agent.loader.read import MONEY_FIELDS
 from claims_agent.settings import Thresholds
@@ -77,16 +77,19 @@ class Overview:
 # ---- the filter: pure ---------------------------------------------------------------------------------------------
 
 def filter_from_form(form: Form, t: Thresholds) -> ClaimFilter:
-    """Each value the fast model gave at least `filter_include_min` joins (an unsure answer includes the value:
-    showing an extra claim of the caller's own is harmless, hiding the right one is not). "No year said" means no year
-    condition. A condition's sureness is the lowest p among its values."""
+    """A value joins only when the fast model is sure the caller named it (a confident yes, at or above the top of
+    the unsure band). A value the caller names reads near 1; one the caller never said can still get a small yes, and
+    every condition narrows what the caller sees, so a reading in the unsure band is never acted on: it would hide the
+    caller's own claims ("all my claims" answered for two of four). With fewer conditions more claims match, and the
+    caller is shown them or asked which one. "No year said" means no year condition. A condition's sureness is the
+    lowest p among its values."""
     chosen: dict[str, frozenset] = {}
     sureness: dict[str, float] = {}
     answers = {"types": form.claim_types, "statuses": form.claim_statuses, "months": form.months, "years": form.years}
     if yes(form.no_year_said, t):
         answers["years"] = {}
     for key, values in answers.items():
-        kept = {v: a.p for v, a in values.items() if a.p is not None and a.p >= t.filter_include_min}
+        kept = {v: a.p for v, a in values.items() if confident_yes(a, t)}
         if kept:
             chosen[key] = frozenset(kept)
             sureness[key] = min(kept.values())
@@ -260,15 +263,17 @@ _DIGITS = "regexp_replace(c.case_id, '[^0-9]', '', 'g')"
 
 async def find_numbered(conn: AsyncConnection, stated: str, limit: int) -> list[Claim]:
     """Every claim of this conversation's customer (at most `limit`, newest first) that a claim number as typed could
-    name: those whose `claim_number_key` equals it, or, when that key is digits only and names none, those whose
-    digits equal it. Another customer's number finds nothing, exactly like a made-up one."""
+    name: those whose `claim_number_key` equals it, or, when that names none, those whose digits equal the digits
+    typed (so "2048" and "claim 2048" find CL-2048). Another customer's number finds nothing, exactly like a made-up
+    one."""
     key = claim_number_key(stated)
+    digits = "".join(ch for ch in key if ch.isdigit())
     if not key:
         return []
-    for column in (_KEY, _DIGITS) if key.isdigit() else (_KEY,):
+    for column, value in ((_KEY, key), (_DIGITS, digits)) if digits else ((_KEY, key),):
         cur = await conn.execute(
             f"SELECT {_CLAIM_JSON} FROM (SELECT c.*, {_DOCUMENTS} AS documents FROM claims c "
-            f"WHERE {column} = %(key)s) x {_NEWEST_FIRST} LIMIT %(limit)s", {"key": key, "limit": limit})
+            f"WHERE {column} = %(key)s) x {_NEWEST_FIRST} LIMIT %(limit)s", {"key": value, "limit": limit})
         rows = await cur.fetchall()
         if rows:
             return [_claim(j) for (j,) in rows]
@@ -382,3 +387,11 @@ async def aggregate(conn: AsyncConnection, f: ClaimFilter, today: date, field: s
                                           ids=None if case_ids is None else list(case_ids)))
     n, total, missing, unpaid, top = await cur.fetchone()
     return Aggregate(Decimal(total), n, tuple(missing), tuple((c, Decimal(v)) for c, v in top), tuple(unpaid))
+
+
+async def chosen_among(conn: AsyncConnection, f: ClaimFilter, today: date, case_ids: Sequence[str]) -> set[str]:
+    """Which of the named claims the filter chooses (a relative time is over every claim of the caller, as always)."""
+    cur = await conn.execute(_CHOSEN + "SELECT case_id FROM chosen WHERE case_id = ANY(%(ids)s::text[])",
+                             _params(f, today, ids=list(case_ids)))
+    return {c for (c,) in await cur.fetchall()}
+

@@ -1,0 +1,12 @@
+id: asks_for_approved_claim
+about: '"My approved claim": the agent explains the statuses on file and never maps anything to "approved".'
+group: resolving
+turns:
+  - say: "Hi, this is Margaret Chen. My date of birth is 1985-03-15 and the last four of my SSN are 4472."
+    expect:
+      verified: P9
+  - say: "I'd like to know about my approved claim."
+    expect:
+      reply_lacks: ["(is|was|has been|were|been) approved", "approved claim"]
+      check_passed: true
+      judge: "The agent's last reply explains which claim statuses are actually on file (for example denied, closed or open) and does not describe any claim as approved."

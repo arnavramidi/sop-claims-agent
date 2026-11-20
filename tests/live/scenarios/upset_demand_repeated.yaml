@@ -1,0 +1,19 @@
+id: upset_demand_repeated
+about: An unverified, upset caller who repeats the demand without giving any detail is offered a person on that second turn, and nothing is disclosed.
+group: blocked
+dataset: starter
+today: 2026-03-05
+turns:
+  - say: "I already told you who I am. This is ridiculous. Just tell me why my claim was denied."
+    expect:
+      state: VERIFY_ID
+      verified: none
+      mood: [upset, angry]
+  - say: "This is absurd. Just tell me."
+    expect:
+      state: VERIFY_ID
+      verified: none
+      handed_over: false
+      claims_visible: 0
+      instructions: [offer_person]
+      reply_has: ["person|someone|representative|agent|human"]

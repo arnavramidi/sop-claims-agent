@@ -159,7 +159,8 @@ async def test_f1_the_check_limit_survives_a_different_person_reset(deps, waitin
     for _ in range(3):
         assert (await say(deps, waiting_conv_timeout, "check again", RECHECK)).state == State.AWAIT_CONSENT
     assert await checks_used(deps, waiting_conv_timeout) == 4
-    r = await say(deps, waiting_conv_timeout, "what about my dad's policy?", make_form(other_person_policy=True))
+    r = await say(deps, waiting_conv_timeout, "what about my dad's policy?",
+                  make_form(other_person_policy=True, other_than_represented=True))
     assert r.state == State.VERIFY_ID
     r = await say(deps, waiting_conv_timeout, "here are the details again", make_form(**THIRD), REP)
     assert r.state == State.ESCALATED

@@ -1,0 +1,13 @@
+id: expected_and_paid_difference
+about: '"The difference between expected and paid on that claim" gives both figures and the difference, with no reason invented.'
+group: arithmetic
+turns:
+  - say: "Hi, this is Margaret Chen. My date of birth is 1985-03-15 and the last four of my SSN are 4472."
+    expect:
+      verified: P9
+  - say: "On my dental claim, what's the difference between what you expected to pay and what you actually paid?"
+    expect:
+      focus: [CL-1899]
+      reply_has: ["425"]
+      reply_lacks: ["because", "due to", "deductible"]
+      check_passed: true

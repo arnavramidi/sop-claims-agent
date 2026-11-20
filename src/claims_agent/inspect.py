@@ -52,8 +52,11 @@ def part_payload(p: ReplyPart) -> dict:
 def inspector_payload(*, state_before: str, state_after: str, freedom: dict | None, filler: str, form: dict | None,
                       stated: dict, flags: Sequence[str], fired: Sequence[dict], parts: Sequence[ReplyPart],
                       composed: Composed, memory: dict, counts: dict, claims_visible: int, outbox: Sequence[dict],
-                      handover_note: dict | None) -> dict:
-    """The Stage 1 inspector payload: exactly these keys, and plain JSON (what is stored is what is shown)."""
+                      handover_note: dict | None, events: Sequence[dict] = (),
+                      prepared: Sequence[dict] = ()) -> dict:
+    """The inspector payload: exactly these keys, and plain JSON (what is stored is what is shown). `events` are the
+    turn's event records, already masked; `prepared` the replies worded ahead the conversation holds
+    (claim and answer only)."""
     payload = {
         "state_before": state_before,
         "state_after": state_after,
@@ -72,5 +75,7 @@ def inspector_payload(*, state_before: str, state_after: str, freedom: dict | No
         "claims_visible": claims_visible,
         "outbox": [mask_all(o) for o in outbox],
         "handover_note": handover_note,
+        "events": list(events),
+        "prepared": list(prepared),
     }
     return json.loads(json.dumps(payload, default=str))

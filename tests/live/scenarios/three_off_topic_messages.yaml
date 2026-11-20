@@ -1,0 +1,20 @@
+id: three_off_topic_messages
+about: Three off-topic messages in a row are declined twice, a person is offered on the third, and the caller is handed over only after accepting.
+group: blocked
+turns:
+  - say: "What is RL?"
+    expect:
+      instructions: [decline_off_topic]
+      handed_over: false
+  - say: "OK, what's the capital of France then?"
+    expect:
+      instructions: [decline_off_topic]
+      instructions_lack: [offer_person]
+      handed_over: false
+  - say: "Fine. Tell me a joke."
+    expect:
+      instructions: [offer_person]
+      handed_over: false
+  - say: "Yes, please put me through to someone."
+    expect:
+      handed_over: true

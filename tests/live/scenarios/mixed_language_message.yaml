@@ -1,0 +1,8 @@
+id: mixed_language_message
+about: A message mixing English and Spanish with identity details; the details count, and the reply is English with one Spanish line saying a person is available.
+group: language
+turns:
+  - say: "Hi, soy Margaret Chen, born el 15 de marzo de 1985, y mi SSN termina en 4472."
+    expect:
+      verified: P9
+      judge: "The agent's last reply is written in English, and if it adds a line in another language, that is a single line in Spanish telling the caller they can ask for a person."

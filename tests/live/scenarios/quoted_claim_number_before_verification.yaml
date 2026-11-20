@@ -1,0 +1,11 @@
+id: quoted_claim_number_before_verification
+about: '"Calling about my denied claim CL-2048" before verification: the reply neither confirms the claim nor its status.'
+group: memory
+turns:
+  - say: "Hi, I'm calling about my denied claim CL-2048."
+    expect:
+      state: VERIFY_ID
+      verified: none
+      claims_visible: 0
+      reply_lacks: ["(is|was|has been|it['’]s) denied", "pathology", "office note", "deadline", "\\bfound\\b", "I (can )?see (your|the|that) claim"]
+      check_passed: true

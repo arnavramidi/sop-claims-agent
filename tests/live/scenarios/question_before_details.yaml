@@ -1,0 +1,20 @@
+id: question_before_details
+about: The question comes in the first message and the details in the next two; the question is answered on the third without being asked again.
+group: memory
+turns:
+  - say: "Why was my healthcare claim from January denied?"
+    expect:
+      state: VERIFY_ID
+      verified: none
+      reply_lacks: ["pathology", "office note", "CL-\\d"]
+  - say: "Margaret Chen, born March 15 1985."
+    expect:
+      verified: none
+      held_kinds: [name, dob]
+  - say: "The last four of my SSN are 4472."
+    expect:
+      verified: P9
+      focus: [CL-2048]
+      answers: [denial_reason]
+      instructions_lack: [ask_need, which_claim]
+      reply_has: ["pathology report"]

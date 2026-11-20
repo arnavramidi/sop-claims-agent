@@ -1,0 +1,13 @@
+id: summaries_too_generic_to_choose
+about: '"My tooth, the ER visit in August" with two August claims whose summaries say nothing specific: the agent shows both and says it cannot tell which.'
+group: resolving
+dataset: august_generic
+turns:
+  - say: "Hi, this is Dana Whitfield, born 1983-11-30, and the last four of my SSN are 9042."
+    expect:
+      verified: P50
+  - say: "It's about my tooth, I ended up in the ER in August."
+    expect:
+      focus: []
+      instructions: [which_claim]
+      reply_has: ["CL-6001", "CL-6002"]

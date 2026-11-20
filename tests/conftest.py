@@ -1,3 +1,4 @@
+import sys
 from pathlib import Path
 
 import pytest
@@ -10,6 +11,7 @@ from claims_agent.settings import ROOT
 from claims_agent.states import State
 
 DATA = Path(__file__).parent / "data"
+sys.path.insert(0, str(ROOT / "scripts"))  # the data-set generators there
 
 
 @pytest.fixture(scope="session")
@@ -54,6 +56,18 @@ async def load_dataset(session_db, clean_db):
     yield load
     for db in made:
         await db.close()
+
+
+@pytest.fixture
+async def thousand_db(session_db, clean_db, tmp_path):
+    """The test database holding one customer with a thousand claims (see scripts/make_thousand_claims.py), generated
+    into a temporary folder and loaded through the real loader. The next test's reset empties it."""
+    from make_thousand_claims import make
+    make(tmp_path)
+    db = session_db.reset()
+    await write(read_folder(tmp_path), db.loader_url)
+    yield db
+    await db.close()
 
 
 # ---- whole-turn fixtures (Task 11). Every conversation is built by talking through `say`. ----

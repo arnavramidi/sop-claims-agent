@@ -15,11 +15,13 @@ around this loop. A terminal outcome in a part (a person, a different person, a 
 conversation stops the parts left, and a different-person reset drops everything said before it.
 """
 
+from claims_agent import prepared
 from claims_agent.db.identity import clear_verified
 from claims_agent.engine import FINAL, _form_request, _hand_over, _refresh_parties, _run_steps, _Turn
 from claims_agent.form.fields import StatedValues
-from claims_agent.form.read import picked, yes
+from claims_agent.form.read import confident_yes, picked, yes
 from claims_agent.reply.brief import ReplyPart
+from claims_agent.rules import other_person
 from claims_agent.rules.every_message import PERSON_OFFER, GlobalOutcome, global_outcome, usable
 from claims_agent.rules.progress import made_progress
 from claims_agent.states import State
@@ -42,7 +44,7 @@ async def answer_each_part(turn: _Turn, outcome: GlobalOutcome) -> bool:
     if len(pieces) < 2:
         return False
 
-    whole = (turn.form, turn.stated, turn.message)
+    whole = (turn.form, turn.stated, turn.message, turn.request)
     taken = pieces[:MAX_PARTS]
     turn.fired.append({"rule": "question_parts", "parts": len(pieces), "taken": len(taken)})
     turn.parts = []  # each part's own reading replaces the whole message's every-message parts
@@ -51,7 +53,7 @@ async def answer_each_part(turn: _Turn, outcome: GlobalOutcome) -> bool:
         stopped = await _one_part(turn, piece, number)
         if stopped:
             break
-    turn.form, turn.stated, turn.message = whole
+    turn.form, turn.stated, turn.message, turn.request = whole
     if conv.state in FINAL:
         return True  # the step or hand-over that ended the conversation owns the whole reply
     turn.parts = _one_question(turn)
@@ -68,19 +70,26 @@ async def _one_part(turn: _Turn, piece: str, number: int) -> bool:
     deps, conv, memory, t = turn.deps, turn.conv, turn.memory, turn.deps.thresholds
     before, state_before, grounded_before = memory.model_copy(deep=True), conv.state, turn.grounded
     turn.message = piece
-    form = await deps.filler.fill(await _form_request(turn, True))
-    stated = await deps.extractor.extract(piece, want_identity=False, want_claim_number=True) \
-        if yes(form.quoted_claim_number, t) else StatedValues()
+    turn.request = await _form_request(turn, True)  # an unsure pick in this part is settled on this part's words
+    form = await deps.filler.fill(turn.request)
+    identity = memory.identity.caller_role == "third_party" and confident_yes(form.other_person_policy, t)
+    stated = await deps.extractor.extract(piece, want_identity=identity, want_claim_number=yes(form.quoted_claim_number, t)) \
+        if yes(form.quoted_claim_number, t) or identity else StatedValues()
     turn.form, turn.stated, turn.grounded = form, stated, False
 
-    outcome = global_outcome(form, verified=True, pending=memory.pending, t=t)
+    outcome = global_outcome(form, verified=True, pending=memory.pending, t=t,
+                             **other_person.switch_reading(memory, form, stated, t))
     hop = False
     if outcome.terminal is not None:
         turn.fired.append({"rule": "every_message", "outcome": outcome.terminal, "part": number})
     if outcome.terminal == "handover":
         await _hand_over(turn, ("caller", "asked_for_person"))
         return True
+    if outcome.terminal == "confirm_policyholder":  # nothing more is answered until the caller says who it is about
+        turn.parts = list(outcome.parts)
+        return True
     if outcome.terminal == "reset_identity":  # as for a whole message; nothing said before it is used
+        await prepared.discard(turn.conn, conv.id)  # while the rows are still visible to this conversation
         await clear_verified(turn.conn, conv.id)
         memory.reset_for_new_identity()
         conv.state = State.VERIFY_ID

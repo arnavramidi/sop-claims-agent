@@ -26,6 +26,7 @@ class FormatFailure:
     kind: str
     as_stated: str
     reason: str
+    partial: bool = False  # only part of the detail (some digits, a year, one word of a name), not a malformed one
 
 
 @dataclass(frozen=True)

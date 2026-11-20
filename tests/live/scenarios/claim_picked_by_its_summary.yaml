@@ -1,0 +1,13 @@
+id: claim_picked_by_its_summary
+about: '"My tooth, the ER visit in August" with a healthcare and a dental claim in August whose summaries describe them: the summary picks the claim.'
+group: resolving
+dataset: august_descriptive
+turns:
+  - say: "Hi, this is Dana Whitfield, born 1983-11-30, and the last four of my SSN are 9042."
+    expect:
+      verified: P50
+  - say: "It's about my tooth, I ended up in the ER in August."
+    expect:
+      focus: [CL-6001]
+      reply_has: ["CL-6001"]
+      reply_lacks: ["CL-6002"]

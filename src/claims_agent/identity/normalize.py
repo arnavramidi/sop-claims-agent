@@ -16,20 +16,55 @@ MAX_PERMUTED_WORDS = 4
 MIN_PHONE_DIGITS = 10
 FULL_ID_DIGITS = 9
 
-_WORD_BREAK = re.compile(r"[\s,;]+")
 _ID_SEPARATORS = re.compile(r"[\s.\-]+")
 _EMAIL = re.compile(r"[^@\s]+@[^@\s]+\.[^@\s]+")  # one @ with a dot after it; the loader's own rule
 _KEY_DROP = re.compile(r"[^A-Za-z0-9]")
 
 
+# THE NAME-WORD RULE, one rule in two places: name_words below and public.name_words in db/004_functions.sql. A
+# name is lower-cased; apostrophes (' ’ ʼ) are dropped, so "O'Neil" is one word; every other character that is not a
+# letter (space, hyphen, dot, comma, digit, ...) separates words, so "Mary-Jane O'Neil" is three words (mary, jane,
+# oneil) and "MargaretChen" is one. A one-letter word is an initial. A name is WHOLE when it has two or more words that
+# are not initials; it is SINGLE when it is exactly one word that is not an initial. The database compares a stated
+# name only when it is whole, or single against a name on file that is itself single; nothing else is ever compared.
+_APOSTROPHES = "'\u2019\u02bc"
+
+
+def name_words(stated: str) -> list[str]:
+    """The words of a name by the name-word rule above."""
+    words, word = [], []
+    for c in stated.lower():
+        if c in _APOSTROPHES:
+            continue
+        if c.isalpha():
+            word.append(c)
+        elif word:
+            words.append("".join(word))
+            word = []
+    if word:
+        words.append("".join(word))
+    return words
+
+
+def is_whole_name(stated: str) -> bool:
+    """A full name, as the verification rule asks for: two or more words that are not initials (the name-word rule)."""
+    return sum(1 for w in name_words(stated) if len(w) > 1) >= 2
+
+
+def is_single_name(stated: str) -> bool:
+    """Exactly one word that is not an initial: the whole name only of a customer whose name on file is one word."""
+    words = name_words(stated)
+    return len(words) == 1 and len(words[0]) > 1
+
+
 def name_candidates(stated: str) -> tuple[str, ...]:
-    """Lower-cased, letters only, every ordering of the words joined with no spaces.
-    Beyond four words: as typed and reversed."""
-    words = [w for w in ("".join(c for c in part.lower() if c.isalpha()) for part in _WORD_BREAK.split(stated)) if w]
+    """Every ordering of the name's words (the name-word rule), each joined by one space so the database can count
+    the words again. Beyond four words: as typed and reversed."""
+    words = name_words(stated)
     if not words:
         return ()
     orders = permutations(words) if len(words) <= MAX_PERMUTED_WORDS else (words, words[::-1])
-    return tuple(dict.fromkeys("".join(o) for o in orders))
+    return tuple(dict.fromkeys(" ".join(o) for o in orders))
 
 
 def claim_number_key(stated: str) -> str:
@@ -57,6 +92,8 @@ def _dobs(readings: list[str], as_stated: str | None, bad: list[FormatFailure]) 
             real.append(d)
     if readings and not real:
         bad.append(FormatFailure("dob", as_stated or ", ".join(readings), "not a real date"))
+    elif as_stated and not readings:  # said, but with no whole day in it ("1985", "March 1985")
+        bad.append(FormatFailure("dob", as_stated, "not a whole date", partial=True))
     # A stated date has at most two readings; the database refuses more.
     return tuple(real[:MAX_DOB_READINGS])
 
@@ -64,7 +101,7 @@ def _dobs(readings: list[str], as_stated: str | None, bad: list[FormatFailure]) 
 def _phone(stated: str, bad: list[FormatFailure]) -> str | None:
     digits = _digits(stated)
     if len(digits) < MIN_PHONE_DIGITS:
-        bad.append(FormatFailure("phone", stated, "fewer than ten digits"))
+        bad.append(FormatFailure("phone", stated, "fewer than ten digits", partial=True))
         return None
     return digits
 
@@ -85,7 +122,7 @@ def _id_last4(stated: str, bad: list[FormatFailure]) -> str | None:
     elif len(digits) == 4 or len(digits) >= FULL_ID_DIGITS:
         return digits[-4:]
     else:
-        bad.append(FormatFailure("id", stated, "needs exactly four digits or the full number"))
+        bad.append(FormatFailure("id", stated, "needs exactly four digits or the full number", partial=True))
     return None
 
 
@@ -93,8 +130,10 @@ def normalise(v: StatedValues) -> tuple[StatedIdentity, list[FormatFailure]]:
     bad: list[FormatFailure] = []
     name, phone, email = _given(v.policyholder_name), _given(v.phone), _given(v.email)
     id_digits, policy = _given(v.id_digits), _given(v.policy_number)
+    if name and not is_whole_name(name):
+        bad.append(FormatFailure("name", name, "only part of a name", partial=True))
     identity = StatedIdentity(
-        names=name_candidates(name) if name else (),
+        names=name_candidates(name) if name and is_whole_name(name) else (),
         dobs=_dobs([r for r in v.date_of_birth if r and r.strip()], _given(v.date_of_birth_as_stated), bad),
         phone=_phone(phone, bad) if phone else None,
         email=_email(email, bad) if email else None,

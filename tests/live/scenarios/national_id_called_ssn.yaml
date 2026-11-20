@@ -1,0 +1,10 @@
+id: national_id_called_ssn
+about: A customer whose ID on file is a national ID says "my SSN ends 6688"; it counts, and the agent never names a type of ID.
+group: identity
+turns:
+  - say: "Hi, this is Ma Tian. I was born on 1964-09-10 and my SSN ends 6688."
+    expect:
+      verified: P12
+      held_kinds: [name, dob, id]
+      reply_lacks: ["national[ -]?id", "\\bssn\\b", "social security"]
+      check_passed: true

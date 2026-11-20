@@ -1,0 +1,11 @@
+id: two_right_one_wrong
+about: Two right details and one wrong one; the reply does not say which detail was wrong or how many matched.
+group: identity
+turns:
+  - say: "I'm Margaret Chen, date of birth 1985-03-15, and my SSN ends in 1234."
+    expect:
+      state: VERIFY_ID
+      verified: none
+      wrong_values: 1
+      reply_lacks: ["\\b(two|2) of\\b", "\\b(one|1) of (them|those|the details|your details)\\b", "(ssn|social security|\\bid\\b|date of birth|birthday|name)[^.]{0,40}(wrong|incorrect|did not match|didn['’]t match|does not match|doesn['’]t match)"]
+      judge: "The agent's last reply does not say which of the caller's details was wrong, and does not say how many of them matched."
