@@ -147,3 +147,36 @@ def test_the_key_is_sent_only_on_the_message_request_to_the_pages_own_server():
     assert src.count("fetch(") == 1 and "fetch(path," in src
     for call in re.findall(r"\bapi\(\s*\"[A-Z]+\",\s*([^,)]+)", src):
         assert call.startswith('"/') or call.startswith("convPath("), call  # every request goes to this page's server
+
+
+# ---- the header's "New conversation" control -----------------------------------------------------------------------
+
+def test_new_conversation_is_a_labelled_button_in_the_chat_header():
+    html = read("src/claims_agent/web/index.html")
+    head = re.search(r'<div class="chat-head">(.*?)</div>', html, re.S).group(1)
+    assert "<h1>" in head
+    button = re.search(r'<button[^>]*id="start-over"[^>]*>([^<]*)</button>', head)
+    assert button and button.group(1) == "New conversation" and 'type="button"' in button.group(0)
+    assert "hidden" not in button.group(0)  # always there, unlike "Start a new conversation" after a close
+
+
+def test_new_conversation_runs_as_one_operation_and_puts_the_new_id_in_the_address():
+    src = js()
+    body = src[src.index("async function startOver()"):src.index("// ---- Inspector")]
+    assert 'run("open"' in body and "if (app.op) return;" in body
+    assert "validCreate(r.data)" in body and "opened(r.data.conversation_id" in body and ", true, false)" in body
+    assert "noConversation" not in body  # a failed start keeps the conversation that is open
+    assert 'els.startOver.addEventListener("click", startOver)' in src
+
+
+def test_new_conversation_cannot_be_used_while_an_operation_runs():
+    src = js()
+    state = src[src.index("function renderControlsState()"):src.index("// ---- Transcript")]
+    assert "els.startOver.disabled = busy" in state
+
+
+def test_the_new_conversation_button_reuses_the_pages_own_styles():
+    css = read("src/claims_agent/web/styles.css")
+    assert ".chat-head" in css
+    assert not re.search(r"#[0-9a-fA-F]{3,8}\b", css[css.index(".chat-head"):]), "no new colours"
+    assert "font-family" not in css[css.index(".chat-head"):]

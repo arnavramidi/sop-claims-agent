@@ -3,7 +3,7 @@
 from typing import TYPE_CHECKING
 
 from claims_agent.db.conversations import Conversation
-from claims_agent.inspect import mask_ids
+from claims_agent.identity.mask import mask_details
 from claims_agent.memory import Memory
 
 if TYPE_CHECKING:
@@ -17,7 +17,7 @@ def note(conversation: Conversation, memory: Memory, message: str, reason: str) 
         "verified": conversation.verified_party_id is not None,
         "customer": conversation.verified_party_id,
         "claims_in_focus": list(memory.focus.claim_ids),
-        "asked": mask_ids(message),
+        "asked": mask_details(message),
         "reason": reason,
         "state": conversation.state.value,
         "turn": memory.counters.turn_no,

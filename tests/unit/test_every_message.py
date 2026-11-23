@@ -10,15 +10,15 @@ from claims_agent.settings import load_thresholds
 T = load_thresholds()
 
 
-def test_b8_empty_and_noise_are_unreadable():
+def test_empty_and_noise_are_unreadable():
     assert not usable("", None) and not usable("???", None) and not usable("a", None)
 
 
-def test_l6_emoji_only_is_unreadable():
+def test_emoji_only_is_unreadable():
     assert not usable("🙂🙂🙂", None)
 
 
-def test_ruling_12_one_letter_answers_a_pending_offer():
+def test_one_letter_answers_a_pending_offer():
     assert usable("y", Pending(kind="offer_email", label="send the summary?", yes_no=True))
     assert usable("y", Pending(kind="ask_which_claim", label="which claim?", yes_no=False))
     assert not usable("y", None)
@@ -26,7 +26,7 @@ def test_ruling_12_one_letter_answers_a_pending_offer():
 
 
 @pytest.mark.parametrize("verified", [False, True])
-def test_b7_asking_for_a_person_hands_over_in_every_state(verified):
+def test_asking_for_a_person_hands_over_in_every_state(verified):
     assert global_outcome(make_form(wants_person=True), verified=verified, pending=None, t=T).terminal == "handover"
 
 
@@ -46,7 +46,7 @@ def test_done_wraps_up_when_verified_and_closes_when_not():
     assert global_outcome(make_form(done=True), verified=False, pending=None, t=T).terminal == "close"
 
 
-def test_v17_another_persons_policy_resets_identity():
+def test_another_persons_policy_resets_identity():
     assert global_outcome(make_form(other_person_policy=True), verified=True, pending=None, t=T).terminal == "reset_identity"
 
 
@@ -65,6 +65,21 @@ def test_asking_why_a_step_is_needed_gets_the_explanation():
     assert [p.instruction for p in o.parts] == ["explain_step"]
 
 
+def test_the_explanation_carries_the_reason_as_a_fact_and_its_plain_text_passes_the_check():
+    from claims_agent.reply.brief import ReplyBrief
+    from claims_agent.reply.check import check_reply
+    from claims_agent.settings import load_settings
+    from claims_agent.states import State
+    o = global_outcome(make_form(asks_why_step=True), verified=False, pending=None, t=T)
+    part = o.parts[0]
+    assert [f.kind for f in part.facts] == ["why_verify"]
+    assert "protect" in part.facts[0].text and "protect" in part.plain
+    rc = load_settings().reply_check
+    brief = ReplyBrief(State.VERIFY_ID, (part,), "calm", "Why do you need all that?", None, True, False)
+    assert check_reply(part.plain, brief, wary_status_words=rc.wary_status_words, data_statuses=(),
+                       status_forms=rc.status_forms, max_length=rc.max_length).passed
+
+
 def test_unsupported_insurance_offers_a_person():
     o = global_outcome(make_form(about="unsupported_insurance"), verified=False, pending=None, t=T)
     assert [p.instruction for p in o.parts] == ["unsupported_offer_person"]
@@ -75,7 +90,7 @@ def test_a_message_not_in_english_adds_the_offer_in_the_callers_language():
     assert "offer_person_in_language" in [p.instruction for p in o.parts]
 
 
-def test_v16_a_personal_detail_is_never_read_out_before_or_after_verification():
+def test_a_personal_detail_is_never_read_out_before_or_after_verification():
     for verified in (False, True):
         o = global_outcome(make_form(asks_personal_detail=True), verified=verified, pending=None, t=T)
         assert "cannot_read_out_personal_detail" in [p.instruction for p in o.parts]
@@ -95,7 +110,7 @@ def test_a_missing_or_refused_field_is_never_read_as_yes():
                   asks_personal_detail=r)
     for verified in (False, True):
         o = global_outcome(f, verified=verified, pending=None, t=T)
-        # a refused wants_person is not dropped: it becomes one offer of a person (F1)
+        # a refused wants_person is not dropped: it becomes one offer of a person
         assert o.terminal is None and [x.instruction for x in o.parts] == ["offer_person"]
         assert o.parts[0].pending.kind == "offer_person"
     # N3: with an offer of a person already pending, no new one is added
@@ -107,7 +122,7 @@ def test_a_missing_or_refused_field_is_never_read_as_yes():
     assert o.terminal is None and o.parts == ()
 
 
-def test_n1_emoji_only_messages_are_unreadable_even_with_selectors_and_keycaps():
+def test_emoji_only_messages_are_unreadable_even_with_selectors_and_keycaps():
     for m in ("❤️❤️", "☺️☺️", "🙂🙂🙂", "👍🏽👍🏽"):
         assert not usable(m, None)
     assert not usable("1️⃣", None)  # a lone keycap digit is one counted character, so unreadable alone
@@ -115,7 +130,7 @@ def test_n1_emoji_only_messages_are_unreadable_even_with_selectors_and_keycaps()
     assert usable("1️⃣2️⃣", None)
 
 
-def test_n2_accepting_the_offered_person_is_a_confident_pick_of_yes():
+def test_accepting_the_offered_person_is_a_confident_pick_of_yes():
     p = Pending(kind="offer_person", label="speak to a person?", yes_no=True)
     at_cutoff = global_outcome(make_form(pending_reply=Pick(value="yes", p=0.60)), verified=False, pending=p, t=T)
     assert at_cutoff.terminal == "handover"
@@ -132,7 +147,7 @@ def test_marks_count_only_after_a_letter_or_digit_not_after_another_mark():
     assert _count("\u0301e") == 1  # a mark with no base counts nothing
 
 
-def test_n3_at_most_one_person_offer_per_turn_and_the_specific_one_wins():
+def test_at_most_one_person_offer_per_turn_and_the_specific_one_wins():
     o = global_outcome(make_form(wants_person=YesNo(p=0.55), about="unsupported_insurance"),
                        verified=False, pending=None, t=T)
     assert [x.instruction for x in o.parts] == ["unsupported_offer_person"]
@@ -163,7 +178,7 @@ def test_devanagari_two_letter_words_count_as_two():
 @pytest.mark.parametrize("field,terminal,verified", [
     ("wants_person", "handover", False), ("other_person_policy", "reset_identity", True),
     ("done", "wrap_up", True), ("done", "close", False)])
-def test_f1_an_ending_outcome_needs_a_confident_yes(field, terminal, verified):
+def test_an_ending_outcome_needs_a_confident_yes(field, terminal, verified):
     def run(p):
         return global_outcome(make_form(**{field: YesNo(p=p)}), verified=verified, pending=None, t=T)
     assert run(0.55).terminal is None
@@ -171,7 +186,7 @@ def test_f1_an_ending_outcome_needs_a_confident_yes(field, terminal, verified):
     assert run(None).terminal is None
 
 
-def test_f1_an_unsure_request_for_a_person_is_offered_one_with_a_pending():
+def test_an_unsure_request_for_a_person_is_offered_one_with_a_pending():
     for p in (None, 0.55, 0.4):
         o = global_outcome(make_form(wants_person=YesNo(p=p)), verified=False, pending=None, t=T)
         assert o.terminal is None
@@ -182,7 +197,7 @@ def test_f1_an_unsure_request_for_a_person_is_offered_one_with_a_pending():
         assert "offer_person" not in [x.instruction for x in o.parts]
 
 
-def test_f2_unsupported_offer_is_acceptable_and_the_language_offer_is_not():
+def test_unsupported_offer_is_acceptable_and_the_language_offer_is_not():
     o = global_outcome(make_form(about="unsupported_insurance", english=False), verified=False, pending=None, t=T)
     by = {p.instruction: p for p in o.parts}
     assert by["unsupported_offer_person"].pending.kind == "offer_person"

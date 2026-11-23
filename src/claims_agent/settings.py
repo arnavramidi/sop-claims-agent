@@ -22,6 +22,9 @@ class Limits(BaseModel):
     event_body_chars: int = 6000  # the longest body of one event record, as JSON text
     events_per_turn: int = 40  # the most event records one turn writes
     replies_prepared: int = 4  # the most follow-up replies worded ahead after one turn
+    upset_turns_before_offer: int  # upset turns that move nothing forward before a person is offered
+    questions_per_message: int  # questions answered from one message; the rest wait for the next one
+    form_asked_chars: int = 40000  # the longest one form's questions and answers may be in a turn's record, as JSON
 
 
 class Today(BaseModel):
@@ -52,6 +55,7 @@ class ReplyCheck(BaseModel):
     wary_status_words: list[str]
     status_forms: dict[str, list[str]] = Field(default_factory=dict)
     max_length: int = 1500
+    polarity_forms: dict[str, list[str]] = Field(default_factory=dict)
 
 
 class PreparedReplies(BaseModel):
@@ -108,6 +112,15 @@ class Hosted(BaseModel):
     tracked_addresses: int = 10000  # the most visitor addresses the rate limiter remembers at once
 
 
+class Database(BaseModel):
+    """The server's connections. A turn holds one connection and its conversation's row lock for the whole turn, model
+    calls included (about two minutes at worst), so these keep a few slow turns from stalling everything else."""
+    pool_size: int = 20  # the most connections the server holds at once
+    pool_wait_seconds: float = 10  # how long a request waits for a free connection before answering "busy"
+    lock_wait_seconds: float = 10  # how long a statement waits for a lock (another turn on the same conversation)
+    idle_in_transaction_seconds: float = 150  # the longest pause inside a transaction before the database ends it
+
+
 class Settings(BaseModel):
     limits: Limits
     today: Today
@@ -123,6 +136,7 @@ class Settings(BaseModel):
     braintrust: Braintrust = Field(default_factory=Braintrust)
     examples: Examples = Field(default_factory=Examples)
     hosted: Hosted = Field(default_factory=Hosted)
+    database: Database = Field(default_factory=Database)
 
 
 class Thresholds(BaseModel):

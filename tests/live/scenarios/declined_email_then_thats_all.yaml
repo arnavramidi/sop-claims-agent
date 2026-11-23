@@ -1,0 +1,26 @@
+id: declined_email_then_thats_all
+about: After the email is declined, "No, that's all" ends the conversation; the offer never comes back and nothing is sent.
+group: wrapup
+turns:
+  - say: "I'm the policyholder. My name is Margaret Chen, policy POL-9921. I'm calling about my denied healthcare claim from January. DOB is 1985-03-15, SSN last four is 4472."
+    expect:
+      verified: P9
+  - say: "No, that's everything, thanks."
+    expect:
+      state: POST_PROCESS
+      instructions: [offer_email]
+  - say: "No thanks, don't send anything."
+    expect:
+      state: DONE
+      outbox_count: 0
+      reply_lacks: ["\\?"]
+  - say: "No, that's all."
+    expect:
+      state: DONE
+      instructions_lack: [offer_email, offer_person]
+      outbox_count: 0
+  - say: "Bye."
+    expect:
+      state: DONE
+      instructions_lack: [offer_email, offer_person]
+      outbox_count: 0

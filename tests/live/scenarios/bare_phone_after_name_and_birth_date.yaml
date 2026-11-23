@@ -1,0 +1,15 @@
+id: bare_phone_after_name_and_birth_date
+about: Name, then date of birth, then a bare phone number answering the agent's question, verify on the third message (a conversation a caller had on the running app).
+group: identity
+turns:
+  - say: "hi, my name is Margaret Chen, and I want information regarding my denied policy"
+    expect:
+      verified: none
+      held_kinds: [name]
+  - say: "my date of birth is march 15, 1985"
+    expect:
+      verified: none
+      held_kinds: [name, dob]
+  - say: "16505212836"
+    expect:
+      verified: P9

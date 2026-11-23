@@ -2,6 +2,8 @@
 initial), or when it is one word and the name on file is itself one word. A one-token full name ("MargaretChen")
 never matches a two-word name on file, whatever the calling code sends."""
 
+import uuid
+
 import pytest
 
 from claims_agent.db.identity import match_identity
@@ -11,9 +13,10 @@ pytestmark = pytest.mark.db
 
 
 async def _name_matches(db, token: str) -> set[str]:
-    s = StatedIdentity(names=(token,), dobs=(), phone=None, email=None, id_last4=None, policy=None)
-    async with db.app.conversation(None) as c:
-        return {m.party_id for m in await match_identity(c, s) if "name" in m.kinds}
+    s = StatedIdentity(name=token, dobs=(), phone=None, email=None, id_last4=None, policy=None)
+    cid = uuid.uuid4()  # a conversation of its own: the database counts wrong values per conversation
+    async with db.app.conversation(cid) as c:
+        return {m.party_id for m in await match_identity(c, cid, s) if "name" in m.kinds}
 
 
 @pytest.mark.parametrize("token,matches", [

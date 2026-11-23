@@ -6,18 +6,22 @@ build-backend = "setuptools.build_meta"
 name = "claims_agent"
 version = "0.1.0"
 requires-python = ">=3.12"
+# Exact versions (the ones the image resolved when they were pinned), so a later build installs the same code.
+# Everything the code imports directly is listed, even when another package would bring it in.
 dependencies = [
-  "fastapi",
-  "uvicorn[standard]",
-  "psycopg[binary,pool]",
-  "pydantic>=2",
+  "fastapi==0.165.0",
+  "starlette==1.10.0",
+  "uvicorn[standard]==0.54.0",
+  "psycopg[binary,pool]==3.3.9",
+  "psycopg-binary==3.3.9",
+  "psycopg-pool==3.3.3",
+  "pydantic==2.14.4",
   "openai==3.57.0",
-  "braintrust",
-  "autoevals",
+  "braintrust==0.52.0",
 ]
 
 [project.optional-dependencies]
-dev = ["pytest", "pytest-asyncio", "httpx"]
+dev = ["pytest==9.2.0", "pytest-asyncio==1.5.0", "httpx==0.28.1", "pyyaml==6.0.3"]
 
 [tool.setuptools.packages.find]
 where = ["src"]

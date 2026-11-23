@@ -45,16 +45,16 @@ from claims_agent.answers.facts import available, build, opening
 from claims_agent.answers.followups import fill
 
 
-def test_a1_days_left_are_counted_against_today():
+def test_days_left_are_counted_against_today():
     assert "2026-03-18" in text(build("appeal_deadline", [CL2048], G, S, TODAY)) and "13 days" in text(build("appeal_deadline", [CL2048], G, S, TODAY))
 
 
-def test_p1_document_names_that_differ_between_files_still_match():
+def test_document_names_that_differ_between_files_still_match():
     assert match_document("pathology report", G.document_text) == "original pathology report"
     assert match_document("office note", G.document_text) == "treating provider office note"
 
 
-def test_p2_a_document_with_no_guidance_uses_the_default():
+def test_a_document_with_no_guidance_uses_the_default():
     assert match_document("diagnosis report", G.document_text) is None
 
 
@@ -62,17 +62,17 @@ def test_several_matches_use_the_default():
     assert match_document("photos", GM.document_text) is None
 
 
-def test_p3_an_auto_claim_with_nothing_outstanding_has_no_followups():
+def test_an_auto_claim_with_nothing_outstanding_has_no_followups():
     a = available(CL2102, G, 1, S)
     assert "documents_needed" not in a and not {f.topic for f in G.followups} & set(a)
     assert "photos" not in text(build("next_steps", [CL2102], G, S, TODAY)) and "estimate" not in text(build("next_steps", [CL2102], G, S, TODAY))
 
 
-def test_p4_the_fallback_line_exists_only_with_documents_outstanding():
+def test_the_fallback_line_exists_only_with_documents_outstanding():
     assert "fallback" in available(CL2048, G, 1, S) and "fallback" not in available(CL2011, G, 1, S)
 
 
-def test_p5_no_type_advice_is_invented_for_dental():
+def test_no_type_advice_is_invented_for_dental():
     assert "medical claims" not in text(build("documents_needed", [CL1899_WITH_ONE_DOC], G, S, TODAY))
 
 
@@ -81,7 +81,7 @@ def test_type_advice_and_count_are_in_the_documents_fact():
     assert "medical claims" in t and "(2)" in t and "pathology report, office note" in t
 
 
-def test_p11_zero_paid_on_an_open_claim_is_not_paid_yet():
+def test_zero_paid_on_an_open_claim_is_not_paid_yet():
     assert "not paid yet" in text(build("amounts", [CL2102], G, S, TODAY))
 
 
@@ -90,7 +90,7 @@ def test_a_zero_paid_on_a_denied_claim_is_stated_as_a_figure():
     assert "not paid yet" not in t and "0.00" in t and "1450.00" in t
 
 
-def test_a9_a_figure_that_failed_to_load_is_unavailable():
+def test_a_figure_that_failed_to_load_is_unavailable():
     assert "unavailable" in text(build("amounts", [replace(CL2011, net_pay=None)], G, S, TODAY))
 
 
@@ -136,7 +136,7 @@ def test_no_amount_is_ever_stated_as_owed():
     assert "you owe" not in t and "you will receive" not in t
 
 
-def test_p1_file_format_fill_keeps_each_documents_requirements():
+def test_file_format_fill_keeps_each_documents_requirements():
     t = text(fill(followup(G, "file_format_requirements"), CL2048, G, S, TODAY))
     assert "specimen details" in t and "visit date" in t
 

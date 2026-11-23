@@ -70,7 +70,7 @@ async def thousand_db(session_db, clean_db, tmp_path):
     await db.close()
 
 
-# ---- whole-turn fixtures (Task 11). Every conversation is built by talking through `say`. ----
+# ---- whole-turn fixtures. Every conversation is built by talking through `say`. ----
 
 @pytest.fixture
 async def deps(load_dataset):
@@ -86,7 +86,7 @@ async def conv(deps):
 
 @pytest.fixture
 async def verified_conv(deps):
-    """Verified as P9 (Margaret Chen) by the brief's own message; now past VERIFY_ID."""
+    """Verified as P9 (Margaret Chen) by the assignment's own message; now past VERIFY_ID."""
     cid = await new_conversation(deps)
     await say(deps, cid, BRIEF_MSG, make_form(**GAVE), BRIEF_SAID)
     assert await verified_party(deps, cid) == "P9"

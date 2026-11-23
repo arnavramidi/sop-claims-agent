@@ -1,0 +1,21 @@
+id: every_ask_lists_the_options
+about: Every reply that asks for identity details says three must match and names every detail the caller can still give, so the caller can choose; a refused detail is left out of the options.
+group: identity
+turns:
+  - say: "Hi, I need some help with a claim."
+    expect:
+      verified: none
+      reply_has: ["\\b(3|three)\\b", "full name", "date of birth|birth ?date", "phone", "e-?mail", "last (four|4)"]
+      check_passed: true
+  - say: "My name is Margaret Chen."
+    expect:
+      verified: none
+      held_kinds: [name]
+      reply_has: ["\\b(3|three)\\b", "date of birth|birth ?date", "phone", "e-?mail", "last (four|4)"]
+      reply_lacks: ["\\bone more\\b"]
+      check_passed: true
+  - say: "I'd rather not give my phone number."
+    expect:
+      verified: none
+      reply_has: ["\\b(3|three)\\b", "date of birth|birth ?date", "e-?mail", "last (four|4)"]
+      check_passed: true

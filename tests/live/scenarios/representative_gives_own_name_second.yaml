@@ -1,0 +1,20 @@
+id: representative_gives_own_name_second
+about: A son calls for his mother without saying his own name; he is asked for it before anything is checked against her list of representatives, gives it, and the policyholder's consent is asked for.
+group: consent
+consent_script: default
+turns:
+  - say: "Hi, I'm calling for my mum, Margaret Chen. Her date of birth is 1985-03-15 and her SSN ends in 4472."
+    expect:
+      state: VERIFY_ID
+      verified: none
+      instructions: [ask_caller_name]
+      instructions_lack: [not_listed]
+      claims_visible: 0
+      judge: "The agent's last reply asks the caller for their own full name and does not say whether this caller, or anyone named in the call, is or is not on the policyholder's list of representatives. Saying in general that such people are listed by their own names (the reason for asking) is fine."
+  - say: "David Chen."
+    expect:
+      state: AWAIT_CONSENT
+      verified: none
+      consent_checks: 1
+      wrong_values: 0
+      judge: "The agent's last reply says the policyholder's consent has been asked for and, in a sentence, why it is needed."

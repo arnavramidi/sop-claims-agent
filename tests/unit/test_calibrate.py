@@ -2,7 +2,8 @@
 
 import tomllib
 
-from calibrate_thresholds import (Labelled, candidates, fitted_toml, labelled_from, readings_of, request_for, sweep)
+from calibrate_thresholds import (NO_FALSE_YES, Labelled, candidates, fit, fitted_toml, labelled_from, readings_of,
+                                   request_for, sweep)
 
 from claims_agent.form.fields import Pick, YesNo
 from claims_agent.settings import Thresholds, load_thresholds
@@ -59,10 +60,21 @@ def test_a_refused_yes_no_reads_as_no():
     assert labelled_from({"field": "english", "expected": True, "p": None, "value": None}) == [Labelled("yes", 0.0, True)]
 
 
-def test_claim_filter_fields_feed_the_include_threshold():
+def test_claim_filter_fields_feed_no_threshold():
+    # A claim filter value is read at the top of the unsure band, which every ending reading shares: one kind of
+    # question cannot fit it, so these readings are recorded and fit nothing.
     for field in ("claim_type:dental", "claim_status:denied", "month:1", "year:2025"):
-        assert labelled_from({"field": field, "expected": False, "p": 0.4, "value": None}) == \
-            [Labelled("filter_include_min", 0.4, False)]
+        assert labelled_from({"field": field, "expected": False, "p": 0.4, "value": None}) == []
+
+
+def test_every_threshold_a_reading_feeds_is_one_the_thresholds_file_has():
+    lines = [{"field": "wants_person", "expected": True, "p": 0.8, "value": None},
+             {"field": "claim_type:dental", "expected": True, "p": 0.9, "value": None},
+             {"field": "mood", "expected": "calm", "p": 0.7, "value": "calm"},
+             {"field": "email_offer_reply", "expected": "send", "p": 0.9, "value": "send"},
+             {"field": "answer_wanted", "expected": "status", "p": 0.8, "value": "status", "calm_single_question": True}]
+    fed = {c.threshold for line in lines for c in labelled_from(line)}
+    assert fed and fed <= set(Thresholds.model_fields) and set(NO_FALSE_YES) <= set(Thresholds.model_fields)
 
 
 def test_a_pick_counts_as_right_only_when_it_picked_the_labelled_option():
@@ -112,3 +124,16 @@ def test_the_fitted_file_is_valid_thresholds_with_a_comment_per_threshold():
     for name in Thresholds.model_fields:
         at = next(i for i, line in enumerate(lines) if line.startswith(f"{name} = "))
         assert lines[at - 1].startswith("# "), name
+
+
+def test_fitting_a_recorded_file_writes_only_thresholds_that_exist(tmp_path):
+    recorded = tmp_path / "probabilities.jsonl"
+    recorded.write_text(
+        '{"case": 0, "field": "wants_person", "expected": true, "p": 0.9, "value": null}\n'
+        '{"case": 1, "field": "claim_type:dental", "expected": false, "p": 0.2, "value": null}\n', encoding="utf-8")
+    out = tmp_path / "thresholds.fitted.toml"
+    assert fit(recorded, out) == 0
+    text = out.read_text(encoding="utf-8")
+    values = tomllib.loads(text)
+    assert set(values) == set(Thresholds.model_fields) and values == load_thresholds().model_dump()
+    assert "too few labelled cases (1;" in text and "no labelled reading feeds it" in text

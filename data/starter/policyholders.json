@@ -47,5 +47,55 @@
     "email_aliases": [
       "yawen.li@example.com"
     ]
+  },
+  {
+    "party_id": "P14",
+    "name": "Daniel Okafor",
+    "policy_number": "POL-4410",
+    "dob": "1978-06-02",
+    "id_type": "ssn_last4",
+    "id_last4": "2051",
+    "phone": "+16505550101",
+    "email": "daniel.okafor@example.com"
+  },
+  {
+    "party_id": "P15",
+    "name": "Priya Nair",
+    "policy_number": "POL-5521",
+    "dob": "1992-11-09",
+    "id_type": "ssn_last4",
+    "id_last4": "7733",
+    "phone": "+16505550102",
+    "email": "priya.nair@example.com"
+  },
+  {
+    "party_id": "P16",
+    "name": "José García",
+    "policy_number": "POL-6630",
+    "dob": "1983-04-27",
+    "id_type": "national_id_last4",
+    "id_last4": "3946",
+    "phone": "+16505550103",
+    "email": "jose.garcia@example.com"
+  },
+  {
+    "party_id": "P17",
+    "name": "Sam Rivera",
+    "policy_number": "POL-7001",
+    "dob": "1987-02-14",
+    "id_type": "ssn_last4",
+    "id_last4": "1208",
+    "phone": "+16505550104",
+    "email": "sam.rivera@example.com"
+  },
+  {
+    "party_id": "P18",
+    "name": "Sam Rivera",
+    "policy_number": "POL-7002",
+    "dob": "1995-09-30",
+    "id_type": "ssn_last4",
+    "id_last4": "8365",
+    "phone": "+16505550105",
+    "email": "sam.rivera.work@example.com"
   }
 ]

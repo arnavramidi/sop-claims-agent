@@ -1,6 +1,6 @@
 """What the inspector shows for one turn. The same payload is stored as the turn's record.
 
-A full ID number is kept as typed in the stored message (Ruling 15) and masked here: every string taken from what the
+A full ID number is kept as typed in the stored message and masked here: every string taken from what the
 caller stated or from memory passes through `mask_ids`.
 """
 
@@ -53,10 +53,15 @@ def inspector_payload(*, state_before: str, state_after: str, freedom: dict | No
                       stated: dict, flags: Sequence[str], fired: Sequence[dict], parts: Sequence[ReplyPart],
                       composed: Composed, memory: dict, counts: dict, claims_visible: int, outbox: Sequence[dict],
                       handover_note: dict | None, events: Sequence[dict] = (),
-                      prepared: Sequence[dict] = ()) -> dict:
+                      prepared: Sequence[dict] = (), usage: dict | None = None, form_asked: dict | None = None,
+                      db_actions: dict | None = None, models: dict | None = None,
+                      path: Sequence[str] = ()) -> dict:
     """The inspector payload: exactly these keys, and plain JSON (what is stored is what is shown). `events` are the
     turn's event records, already masked; `prepared` the replies worded ahead the conversation holds
-    (claim and answer only)."""
+    (claim and answer only). `usage` is the turn's model token counts (calls and totals), or None. `form_asked` is
+    every form filled this turn as the fast model was asked it, with its answers (already masked and capped, see
+    form.asked); `db_actions` the database actions the turn took (see db.actions), or None; `models` the model names
+    of the three roles; `path` the state of each step that ran, in order."""
     payload = {
         "state_before": state_before,
         "state_after": state_after,
@@ -77,5 +82,10 @@ def inspector_payload(*, state_before: str, state_after: str, freedom: dict | No
         "handover_note": handover_note,
         "events": list(events),
         "prepared": list(prepared),
+        "usage": usage,
+        "form_asked": form_asked,
+        "db_actions": db_actions,
+        "models": models,
+        "path": list(path),
     }
     return json.loads(json.dumps(payload, default=str))

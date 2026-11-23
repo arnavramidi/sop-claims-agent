@@ -11,18 +11,18 @@ def _step(c, progressed, a=State.VERIFY_ID, b=State.VERIFY_ID):
     return r
 
 
-def test_b1_three_off_topic_turns_offer_a_person_on_the_third():
+def test_three_off_topic_turns_offer_a_person_on_the_third():
     c = Counters()
     assert [_step(c, False).offer_person for _ in range(3)] == [False, False, True]
 
 
-def test_b2_alternating_useful_and_off_topic_never_reaches_the_limit():
+def test_alternating_useful_and_off_topic_never_reaches_the_limit():
     c = Counters()
     for progressed in [False, True] * 5:
         assert not _step(c, progressed).offer_person
 
 
-def test_b14_the_offer_repeats_every_three_stalled_turns_and_never_forces():
+def test_the_offer_repeats_every_three_stalled_turns_and_never_forces():
     c = Counters()
     assert [_step(c, False, State.PROCESS_CASE, State.PROCESS_CASE).offer_person for _ in range(6)] == \
         [False, False, True, False, False, True]
@@ -36,12 +36,12 @@ def test_leaving_consent_while_stalled_counts():
     assert apply_stall(Counters(stalled_in_a_row=2), False, State.AWAIT_CONSENT, State.RESOLVE_INTENT, 3) == StallResult(0, True)
 
 
-def test_x9_an_identity_value_is_progress_even_in_an_off_topic_message():
+def test_an_identity_value_is_progress_even_in_an_off_topic_message():
     before, after = Memory.fresh(), with_held(Memory.fresh(), "dob", "1985-03-15")
     assert made_progress(before, after, State.VERIFY_ID, State.VERIFY_ID, False) != []
 
 
-def test_b5_a_refusal_that_adds_nothing_is_stalled():
+def test_a_refusal_that_adds_nothing_is_stalled():
     assert made_progress(Memory.fresh(), Memory.fresh(), State.VERIFY_ID, State.VERIFY_ID, False) == []
 
 
@@ -80,7 +80,7 @@ def test_an_answered_yes_no_counts_but_a_cleared_offer_does_not():
     assert made_progress(Memory.fresh(), Memory.fresh(), State.VERIFY_ID, State.VERIFY_ID, False, pending_reply="yes") == []
 
 
-def test_f3_the_same_value_in_other_words_is_not_progress_but_a_different_value_is():
+def test_the_same_value_in_other_words_is_not_progress_but_a_different_value_is():
     from claims_agent.memory import HeldValue
     a = with_held(Memory.fresh(), "dob", "1985-03-15")
     b = a.model_copy(deep=True)
@@ -101,3 +101,31 @@ def test_the_same_claim_described_again_with_other_certainty_is_not_progress():
     other.hints.claim_filter = {"statuses": ["denied"], "types": ["healthcare"],
                                 "sureness": {"statuses": 0.95, "types": 0.9}}
     assert made_progress(before, other, State.VERIFY_ID, State.VERIFY_ID, False) == ["hint added or changed"]
+
+
+def test_a_turn_whose_only_change_is_a_remembered_hint_did_not_move():
+    # The app: "give me the information regarding all of them" set the need hint and got the same list again; the
+    # hint reset the stall count, so a person would only have been offered on a fourth repeat.
+    from claims_agent.rules.progress import moved
+    assert not moved(["hint added or changed"]) and not moved([])
+    assert moved(["hint added or changed", "claims in focus changed"])
+
+
+def test_a_list_shown_for_the_first_time_is_progress_and_the_same_list_again_is_not():
+    from claims_agent.rules.progress import moved
+    before, shown = Memory.fresh(), Memory.fresh()
+    shown.focus.last_list = ["CL-2048", "CL-2011"]
+    assert moved(made_progress(before, shown, State.RESOLVE_INTENT, State.RESOLVE_INTENT, False))
+    assert not moved(made_progress(shown, shown.model_copy(deep=True), State.RESOLVE_INTENT, State.RESOLVE_INTENT,
+                                   False))
+
+
+def test_three_turns_with_only_a_hint_changing_offer_a_person_on_the_third():
+    from claims_agent.rules.progress import moved
+    counters = Counters()
+    results = []
+    for _ in range(3):
+        r = apply_stall(counters, moved(["hint added or changed"]), State.RESOLVE_INTENT, State.RESOLVE_INTENT, 3)
+        counters.stalled_in_a_row = r.stalled_in_a_row
+        results.append(r.offer_person)
+    assert results == [False, False, True]

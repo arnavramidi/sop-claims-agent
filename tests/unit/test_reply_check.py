@@ -22,18 +22,18 @@ def failures(text, **kw):
                            status_forms=FORMS).failures)
 
 
-def test_x5_addresses_numbers_and_emails_always_fail():
+def test_addresses_numbers_and_emails_always_fail():
     assert "web_address" in failures("Upload at https://portal.example.com", facts=F)
     assert "phone_number" in failures("Call 650-521-2836", facts=F)
     assert "email_address" in failures("Write to help@example.com", facts=F)
 
 
-def test_x5_an_amount_not_in_the_facts_fails():
+def test_an_amount_not_in_the_facts_fails():
     assert "number_not_in_facts" in failures("You will receive $1,200.", facts=F)
     assert failures("The allowed maximum on CL-2048 is $1,450.", facts=F) == set()
 
 
-def test_x6_a_claim_number_not_in_the_facts_fails():
+def test_a_claim_number_not_in_the_facts_fails():
     assert "number_not_in_facts" in failures("Claim CL-2011 is closed.", facts=F)
 
 
@@ -42,16 +42,16 @@ def test_dates_must_come_from_the_facts():
     assert "month_not_in_facts" in failures("You have until April.", facts=F)
 
 
-def test_x5_approved_fails_unless_the_facts_say_it():
+def test_approved_fails_unless_the_facts_say_it():
     assert "status_word" in failures("Good news, it was approved.", facts=F)
     assert failures("Consent is still pending.", facts=(Fact("consent", "Consent status: pending"),)) == set()
 
 
-def test_m3_a_claim_number_cannot_be_echoed_before_verification():
+def test_a_claim_number_cannot_be_echoed_before_verification():
     assert "claim_detail_before_verification" in failures("I'll look at CL-2048 once verified.", verified=False, numbers=("CL-2048",))
 
 
-def test_ruling_21_the_verification_rule_may_be_stated_before_verification():
+def test_the_verification_rule_may_be_stated_before_verification():
     rule = (Fact("verification_rule", "At least 3 of these 5 are needed: full name, date of birth, phone number, email address, last 4 digits of the ID on file."),)
     assert failures("I need 3 of these 5 details before I can discuss a denied claim.", facts=rule, verified=False) == set()
 
@@ -177,7 +177,7 @@ def test_failures_are_listed_once_in_a_fixed_order():
     assert r.failures == ("phone_number", "email_address", "number_not_in_facts", "month_not_in_facts", "status_word")
 
 
-# ---- fix round 1 ----
+# ---- further cases ----
 import time
 
 import pytest
@@ -186,7 +186,7 @@ GUIDE = Fact("guidance", "A human representative should review what other proof 
 STATUS = Fact("status", "Claim status: open")
 
 
-def test_f4_a_date_is_one_unit():
+def test_a_date_is_one_unit():
     for text in ["You have until March 13.", "You have until March 3, 2026.", "Until 3/13.", "You have 18 days left.",
                  "You have 3 days left.", "Until the nineteenth.", "Until Tuesday.",
                  "Until next Tuesday.", "Until tomorrow.", "Next week.", "In a couple of weeks.", "Until March 18, 2027."]:
@@ -195,21 +195,21 @@ def test_f4_a_date_is_one_unit():
     assert failures("Until March 18th, 2026 (13 days left).", facts=F) == set()
 
 
-def test_f5_numbers_are_compared_by_type():
+def test_numbers_are_compared_by_type():
     for text in ["You will receive $13.", "You will receive $2,048.", "You will receive $2048.", "13%", "thirteen percent",
                  "between 13 and 18 days", "Until 2048.", "That is 13 dollars."]:
         assert "number_not_in_facts" in failures(text, facts=F), text
     assert failures("Claim CL-2048 allows $1,450.00 and 13 days remain.", facts=F) == set()
 
 
-def test_f6_facts_side_by_side_are_not_a_phone_number():
+def test_facts_side_by_side_are_not_a_phone_number():
     for text in ["Until March 18 2026 (13 days left).", "Until March 18 2026 - 13 days left.", "Claim CL-2048 (1450.00 maximum)",
                  "Claim CL-2048. 1450.00 is the maximum."]:
         assert "phone_number" not in failures(text, facts=F), text
         assert failures(text, facts=F) == set(), text
 
 
-def test_f1_obfuscated_addresses():
+def test_obfuscated_addresses():
     for text in ["portal (dot) example (dot) com", "portal [dot] example [dot] com", "portal-dot-example-dot-com",
                  "portal dot example dot claims", "portal dot example dot ai", "portal dot example dot co dot uk",
                  "portal . example . claims", "portal\u3002example\u3002com", "portal\uff61example\uff61com",
@@ -220,7 +220,7 @@ def test_f1_obfuscated_addresses():
     assert "email_address" in failures("help AT example DOT co", facts=F)
 
 
-def test_f3_status_words_by_exact_form_and_use():
+def test_status_words_by_exact_form_and_use():
     assert "status_word" in failures("Your claim was accepted.", facts=(GUIDE,))
     assert failures("Other proof may be accepted.", facts=(GUIDE,)) == set()
     assert "status_word" in failures("Your claim CL-2048 is pending.", facts=(Fact("guidance", "what is still pending"),))
@@ -249,12 +249,12 @@ def test_the_check_on_a_long_reply_is_fast():
     assert time.perf_counter() - t0 < 1.0
 
 
-# ---- fix round 2 ----
+# ---- further cases ----
 RULE = (Fact("verification_rule", "At least 3 of these 5 are needed: full name, date of birth, phone number, email address, last 4 digits of the ID on file."),)
 DOCS = (Fact("documents", "Required documents (2): pathology report, office note"),)
 
 
-def test_r2_a_number_words_are_numbers():
+def test_a_number_words_are_numbers():
     assert failures("At least three of these five details are needed.", facts=RULE, verified=False) == set()
     assert failures("You have thirteen days left.", facts=F) == set()
     for text in ["Until the first of March.", "A dozen days.", "In a day.", "Until the nineteenth.", "Twelve days.",
@@ -263,7 +263,7 @@ def test_r2_a_number_words_are_numbers():
     assert failures("It is fourteen hundred dollars.", facts=(Fact("amounts", "Allowed maximum: 1400.00"),)) == set()
 
 
-def test_r2_a_vague_quantities_and_relative_dates_need_the_same_words():
+def test_a_vague_quantities_and_relative_dates_need_the_same_words():
     for text in ["It takes a few days.", "Several days.", "A couple of days.", "Several documents.", "Tonight.", "Yesterday.",
                  "On Mon.", "By Fri.", "Next month.", "This week.", "Last year.", "By end of month.", "By the end of the month.",
                  "Around mid-March."]:
@@ -272,7 +272,7 @@ def test_r2_a_vague_quantities_and_relative_dates_need_the_same_words():
     assert failures("Until next Tuesday.", facts=(Fact("guidance", "Send it by next Tuesday."),)) == set()
 
 
-def test_r2_b_what_a_bare_number_may_match():
+def test_b_what_a_bare_number_may_match():
     assert failures("The maximum is 1,450.", facts=F) == set()
     assert failures("Until the 18th.", facts=F) == set()
     assert failures("Until the eighteenth of March.", facts=F) == set()
@@ -282,7 +282,7 @@ def test_r2_b_what_a_bare_number_may_match():
         assert "number_not_in_facts" in failures(text, facts=F), text
 
 
-def test_r2_c_bullets_and_other_languages_are_not_addresses():
+def test_c_bullets_and_other_languages_are_not_addresses():
     assert failures("You need two documents:\n\u2022 the pathology report\n\u2022 the office note", facts=DOCS) == set()
     assert failures("Pode pedir para falar com uma pessoa a qualquer momento.", facts=F) == set()
     assert failures("Puede pedir hablar con una persona en cualquier momento.", facts=F) == set()
@@ -290,7 +290,7 @@ def test_r2_c_bullets_and_other_languages_are_not_addresses():
     assert "web_address" in failures("portal \u3002 example\u3002com", facts=F)
 
 
-def test_r2_d_a_claim_state_in_other_shapes():
+def test_d_a_claim_state_in_other_shapes():
     facts = (GUIDE, *F)
     for text in ["CL-2048 has been accepted.", "Your case was accepted.", "Your claim\u2019s accepted.",
                  "Your claim for the dental visit was accepted.", "We have accepted your claim."]:
@@ -298,16 +298,16 @@ def test_r2_d_a_claim_state_in_other_shapes():
     assert failures("Other proof may be accepted.", facts=(GUIDE,)) == set()
 
 
-def test_r2_e_processing_with_and_without_the_words_in_the_facts():
+def test_e_processing_with_and_without_the_words_in_the_facts():
     proc = (Fact("guidance", "average processing time"),)
     assert failures("I'm processing your request.", facts=proc) == set()
     assert "status_word" in failures("Your claim is processing.", facts=proc)
     assert "status_word" in failures("I'm processing your request.", facts=F)
 
 
-# ---- fix round 3 ----
+# ---- further cases ----
 
-def test_r3_an_ordinal_may_only_equal_the_day_of_a_fact_date():
+def test_an_ordinal_may_only_equal_the_day_of_a_fact_date():
     for text in ["You have until the 13th to appeal.", "Your appeal is due on the thirteenth.", "Until the 13th.",
                  "By the second.", "By the 1st.", "Due on the 2nd."]:
         assert "number_not_in_facts" in failures(text, facts=F), text
@@ -315,7 +315,7 @@ def test_r3_an_ordinal_may_only_equal_the_day_of_a_fact_date():
         assert failures(text, facts=F) == set(), text
 
 
-def test_r3_only_claim_units_are_durations_and_today_is_filler():
+def test_only_claim_units_are_durations_and_today_is_filler():
     for text in ["Give me a minute while I check.", "Just a minute, please.", "One second.", "Hold on, an hour at most is not needed.",
                  "Anything else I can help you with today?", "I have a couple of questions."]:
         assert failures(text, facts=F) == set(), text
@@ -324,7 +324,7 @@ def test_r3_only_claim_units_are_durations_and_today_is_filler():
     assert failures("You have 13 days left.", facts=F) == set()
 
 
-def test_r3_vague_words_count_only_before_claim_units():
+def test_vague_words_count_only_before_claim_units():
     assert "number_not_in_facts" in failures("It takes several documents.", facts=F)
     assert "number_not_in_facts" in failures("In a few weeks.", facts=F)
     assert failures("It takes a few days.", facts=(Fact("guidance", "It takes a few days."),)) == set()
@@ -379,7 +379,7 @@ def test_before_verification_a_claim_detail_is_not_repeated_back():
     assert "month_not_in_facts" in failures(text, facts=_RULE_ONLY, verified=False)
 
 
-def test_r4_a_comma_makes_a_sequence_only_when_the_ordinal_opens_a_sentence():
+def test_a_comma_makes_a_sequence_only_when_the_ordinal_opens_a_sentence():
     for text in ["Send it by the thirteenth, please.", "The deadline is the thirteenth, so please hurry.",
                  "Please send it by the second, if you can.", "On the third, at the latest."]:
         assert "number_not_in_facts" in failures(text, facts=F), text
@@ -387,7 +387,7 @@ def test_r4_a_comma_makes_a_sequence_only_when_the_ordinal_opens_a_sentence():
     assert failures("Steps to take:\nFirst, send the report.\nSecond, send the note.", facts=F) == set()
 
 
-def test_r4_first_is_a_date_only_after_the_or_a_month_or_before_of_a_month():
+def test_first_is_a_date_only_after_the_or_a_month_or_before_of_a_month():
     for text in ["By the first.", "Until the first of March.", "Until March first.", "Until first of March."]:
         assert failures(text, facts=F) & {"number_not_in_facts", "month_not_in_facts"}, text
     for text in ["First of all, I'm sorry about this.", "Let me first check your claim."]:

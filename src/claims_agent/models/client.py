@@ -3,10 +3,13 @@ single retry (models.call.with_retry) is the only one; the HTTP timeout comes fr
 
 from openai import AsyncOpenAI
 
+from claims_agent.models.usage import Metered
 from claims_agent.settings import load_settings
 
 
 def make_client(*, api_key: str | None = None, http_client=None) -> AsyncOpenAI:
-    """`api_key` defaults to the OPENAI_API_KEY environment variable. `http_client` is for tests only."""
-    return AsyncOpenAI(api_key=api_key, max_retries=0, timeout=load_settings().limits.model_timeout_seconds,
-                       http_client=http_client)
+    """`api_key` defaults to the OPENAI_API_KEY environment variable. `http_client` is for tests only. The client is
+    returned inside `Metered`, which reports each response's token usage to the turn that is running."""
+    client = AsyncOpenAI(api_key=api_key, max_retries=0, timeout=load_settings().limits.model_timeout_seconds,
+                         http_client=http_client)
+    return Metered(client)  # type: ignore[return-value]

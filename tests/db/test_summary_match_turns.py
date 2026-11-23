@@ -39,7 +39,7 @@ async def dana(descriptive_deps):
     return await _dana(descriptive_deps)
 
 
-async def test_r13_descriptive_summaries_let_the_fast_model_pick(descriptive_deps, dana):
+async def test_descriptive_summaries_let_the_fast_model_pick(descriptive_deps, dana):
     descriptive_deps.filler.queue_one(Pick(value="CL-6001", p=0.9))
     r = await say(descriptive_deps, dana, SAID, TOOTH)
     assert await focus(descriptive_deps, dana) == ["CL-6001"]
@@ -48,7 +48,7 @@ async def test_r13_descriptive_summaries_let_the_fast_model_pick(descriptive_dep
     assert offered["CL-6001"].startswith("Emergency room") and set(offered) == {"CL-6001", "CL-6002", "cannot_tell"}
 
 
-async def test_r14_generic_summaries_show_both_and_say_it_cannot_tell(load_dataset):
+async def test_generic_summaries_show_both_and_say_it_cannot_tell(load_dataset):
     deps = make_deps(await load_dataset("august_generic"))
     cid = await _dana(deps)
     deps.filler.queue_one(Pick(value="cannot_tell", p=0.8))
@@ -57,7 +57,7 @@ async def test_r14_generic_summaries_show_both_and_say_it_cannot_tell(load_datas
     assert "cannot_tell" in [f.kind for f in facts(r)]
 
 
-async def test_r12_one_august_claim_names_its_type_and_gives_its_status(load_dataset):
+async def test_one_august_claim_names_its_type_and_gives_its_status(load_dataset):
     deps = make_deps(await load_dataset("august_single"))
     cid = await _dana(deps)
     r = await say(deps, cid, SAID, TOOTH)
@@ -67,7 +67,7 @@ async def test_r12_one_august_claim_names_its_type_and_gives_its_status(load_dat
     assert "Summary on file" not in first.text and any(f.kind == "status" for f in facts(r))
 
 
-async def test_x14_a_summary_pick_outside_the_candidates_is_rejected(descriptive_deps, dana):
+async def test_a_summary_pick_outside_the_candidates_is_rejected(descriptive_deps, dana):
     descriptive_deps.filler.queue_one(Pick(value="CL-2048", p=0.95))
     r = await say(descriptive_deps, dana, "the tooth one in August", TOOTH)
     assert await focus(descriptive_deps, dana) == [] and "which_claim" in instructions(r)
@@ -98,7 +98,7 @@ async def test_a_model_failure_asks_the_caller_with_the_same_list(descriptive_de
     assert r.state == State.RESOLVE_INTENT
 
 
-async def test_r10_listed_claims_carry_dates_so_the_newer_one_can_be_picked(deps):
+async def test_listed_claims_carry_dates_so_the_newer_one_can_be_picked(deps):
     cid = await new_conversation(deps)
     await say(deps, cid, "Margaret Chen, born 1985-03-15, ID ends 4472", make_form(**GAVE),
               stated(policyholder_name="Margaret Chen", date_of_birth=["1985-03-15"], id_digits="4472"))

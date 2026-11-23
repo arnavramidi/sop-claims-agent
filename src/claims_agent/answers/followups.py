@@ -3,7 +3,7 @@
 A template comes from an untrusted data file, so it is filled only by plain replacement of the blanks it
 names (the loader already refused templates with anything else); nothing in it is ever evaluated."""
 
-from collections.abc import Collection, Mapping
+from collections.abc import Collection
 from datetime import date
 
 from claims_agent.answers.facts import AnswerResult, deadline_fact, exists_for, render, status_fact

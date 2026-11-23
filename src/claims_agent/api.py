@@ -3,7 +3,8 @@
 Every response that is not a success is `{"error": <code>, "message": <fixed text>}` and nothing else: the
 framework's own validation errors, a missing route or method, the model and database problems an operator must fix,
 and any unexpected error. No message ever carries caller text, an SDK's or the database's own words, or a trace.
-No route lists conversations, and nothing returns an email address.
+No route lists conversations, and nothing returns an email address except the sample-callers list, which serves a
+file of invented addresses (never the database).
 """
 
 import logging
@@ -23,7 +24,7 @@ from psycopg_pool import PoolTimeout
 from pydantic import BaseModel, ConfigDict, Field, StrictInt, StrictStr, field_validator
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
-from claims_agent import admin, hosted, prepared
+from claims_agent import admin, hosted, prepared, sample_callers
 from claims_agent.db import conversations as store
 from claims_agent.db.guidance import load_guidance
 from claims_agent.db.pool import AppDb
@@ -33,13 +34,14 @@ from claims_agent.form.decisions_filler import DecisionsFiller
 from claims_agent.form.settle import ModelSettler
 from claims_agent.form.switching import build_switching_filler
 from claims_agent.form.extractor import TextExtractor
+from claims_agent.http_view import for_http
 from claims_agent.inspect import mask_all
 from claims_agent.models.client import make_client
-from claims_agent.models.errors import ModelAccountProblem, ModelKeyRejected, ModelNotPermitted
+from claims_agent.models.errors import ModelAccountProblem, ModelKeyNotSet, ModelKeyRejected, ModelNotPermitted
 from claims_agent.observability import make_turn_log, safe_feedback
 from claims_agent.records import events_of, with_events
 from claims_agent.reply.wording import ModelWording
-from claims_agent.settings import Settings, load_settings, load_thresholds
+from claims_agent.settings import ROOT, Settings, load_settings, load_thresholds
 
 logger = logging.getLogger("claims_agent.api")
 
@@ -66,6 +68,7 @@ ERRORS: dict[str, tuple[int, str]] = {
     "conversation_not_found": (404, "There is no such conversation."),
     "method_not_allowed": (405, "That method is not allowed here."),
     "model_key_rejected": (401, "The model key was rejected. Check OPENAI_API_KEY."),
+    "model_key_not_set": (401, "No model key is set. Add OPENAI_API_KEY to the .env file, then restart the server."),
     "model_account_problem": (402, "The model account has no credit or quota. Add credit to the account, then try again."),
     "model_not_permitted": (403, "The model key may not use the models this agent needs. Check the key's model access."),
     "claim_not_found": (404, "There is no such claim."),
@@ -139,12 +142,12 @@ def _today(value: str | None) -> date | None:
 # ---- model clients ----------------------------------------------------------------------------------------------
 
 class _NoKey:
-    """Stands in for every model client when OPENAI_API_KEY is not set: each call fails as a rejected key, so the
-    messages endpoint answers exactly as it does for a key the API refuses, and nothing moves."""
+    """Stands in for every model client when OPENAI_API_KEY is not set: each call fails as a missing key, so the
+    messages endpoint says the key is not set, and nothing moves."""
     name = "decisions"
 
     async def _fail(self, *args, **kwargs):
-        raise ModelKeyRejected("none", "OPENAI_API_KEY is not set")
+        raise ModelKeyNotSet()
 
     fill = extract = word = rewrite = _fail
     settle = _fail
@@ -153,7 +156,7 @@ class _NoKey:
 def model_clients(s: Settings) -> tuple[Any, Any, Any]:
     """The filler, extractor and wording clients, all over one client built by `make_client`."""
     if not os.environ.get("OPENAI_API_KEY"):
-        logger.error("OPENAI_API_KEY is not set: every message will be answered with model_key_rejected")
+        logger.error("OPENAI_API_KEY is not set: every message will be answered with model_key_not_set")
         stand_in = _NoKey()
         return stand_in, stand_in, stand_in
     client = make_client()
@@ -164,7 +167,7 @@ def model_clients(s: Settings) -> tuple[Any, Any, Any]:
 
 async def _real_deps() -> Deps:
     s = load_settings()
-    db = AppDb(os.environ["DATABASE_URL"])
+    db = AppDb(os.environ["DATABASE_URL"], limits=s.database)
     async with db.conversation(None) as conn:
         guidance = await load_guidance(conn)
     filler, extractor, wording = model_clients(s)
@@ -186,7 +189,7 @@ async def hosted_deps() -> Deps:
     """Hosted mode's dependencies: no model client of the server's own (each message request builds its clients from
     the visitor's key), nothing prepared in the background, and Braintrust only when its owner opted in."""
     s = load_settings()
-    db = AppDb(os.environ["DATABASE_URL"])
+    db = AppDb(os.environ["DATABASE_URL"], limits=s.database)
     async with db.conversation(None) as conn:
         guidance = await load_guidance(conn)
     stand_in = _NoKey()  # reached only if a model call were ever made outside a message request
@@ -271,6 +274,11 @@ async def _pool_timeout(request: Request, exc: Exception):
     return error_response("database_busy")
 
 
+async def _lock_wait(request: Request, exc: Exception):
+    logger.warning("a lock was not released in time (another turn on the same conversation is still running)")
+    return error_response("database_busy")
+
+
 async def _db_down(request: Request, exc: Exception):
     logger.error("the database could not be reached: %s", type(exc).__name__)
     return error_response("database_unavailable")
@@ -293,6 +301,11 @@ async def _scripts(conn: AsyncConnection) -> list[str]:
 async def _check_script(conn: AsyncConnection, name: str | None) -> None:
     if name is not None and name not in await _scripts(conn):
         raise ApiError("unknown_consent_script")
+
+
+async def _verified(conn: AsyncConnection, cid: UUID) -> str | None:
+    row = await (await conn.execute("SELECT verified_party_id FROM conversations WHERE id = %s", [cid])).fetchone()
+    return None if row is None else row[0]
 
 
 async def _row(conn: AsyncConnection, cid: UUID) -> tuple[str, str, date | None]:
@@ -336,12 +349,14 @@ def create_app(deps: Deps | None = None, admin_database_url: str | None = None, 
 
     app = FastAPI(lifespan=lifespan, docs_url=None, redoc_url=None, openapi_url=None, exception_handlers={
         ApiError: _api_error, RequestValidationError: _validation, StarletteHTTPException: _http,
-        ModelKeyRejected: _fixed("model_key_rejected"), ModelAccountProblem: _fixed("model_account_problem"),
+        ModelKeyRejected: _fixed("model_key_rejected"), ModelKeyNotSet: _fixed("model_key_not_set"), ModelAccountProblem: _fixed("model_account_problem"),
         ModelNotPermitted: _fixed("model_not_permitted"), TurnFailed: _fixed("turn_failed"),
-        PoolTimeout: _pool_timeout, psycopg.OperationalError: _db_down, Exception: _unexpected,
+        PoolTimeout: _pool_timeout, psycopg.errors.LockNotAvailable: _lock_wait, psycopg.OperationalError: _db_down,
+        Exception: _unexpected,
     })
     if is_hosted:
         app.add_exception_handler(ModelKeyRejected, _hosted_key_rejected)
+        app.add_exception_handler(ModelKeyNotSet, _hosted_key_rejected)
     app.state.deps = deps
     app.add_middleware(BodyLimit, max_bytes=MAX_BODY_BYTES)
 
@@ -351,6 +366,7 @@ def create_app(deps: Deps | None = None, admin_database_url: str | None = None, 
     limits = (deps.settings if deps is not None else load_settings()).hosted
     starts = hosted.RateLimiter(limits.conversations_per_minute, limits.tracked_addresses)
     sends = hosted.RateLimiter(limits.messages_per_minute, limits.tracked_addresses)
+    ratings = hosted.RateLimiter(limits.messages_per_minute, limits.tracked_addresses)
 
     def visitor_limit(request: Request, limiter: hosted.RateLimiter) -> None:
         """Hosted mode: refuse a visitor address over its limit (nothing else is read first)."""
@@ -372,25 +388,46 @@ def create_app(deps: Deps | None = None, admin_database_url: str | None = None, 
     app.get("/styles.css")(_page("styles.css", "text/css; charset=utf-8"))
 
     @app.get("/health")
-    async def health() -> dict:
-        return {"ok": True}
+    async def health(request: Request) -> JSONResponse:
+        """The server is up; whether the database answers. Busy (no free connection) is still up: every connection is
+        in use by a turn. Unreachable is a 503."""
+        try:
+            await d(request).db.ping()
+        except PoolTimeout:
+            return JSONResponse({"ok": True, "database": "busy"})
+        except psycopg.Error:
+            logger.error("health: the database could not be reached")
+            return JSONResponse({"ok": False, "database": "unavailable"}, status_code=503)
+        return JSONResponse({"ok": True, "database": "ok"})
 
     @app.get("/api/meta")
     async def meta(request: Request) -> dict:
         deps = d(request)
         async with deps.db.conversation(None) as conn:
             scripts = await _scripts(conn)
-            report = await (await conn.execute(
+            report = [] if is_hosted else await (await conn.execute(
                 "SELECT level, file, ref, field, reason FROM load_report ORDER BY id")).fetchall()
-        return {"consent_scripts": scripts,
-                "load_report": [dict(zip(("level", "file", "ref", "field", "reason"), r)) for r in report],
-                "filler": deps.filler.name, "admin": admin_url is not None, "hosted": is_hosted}
+        return for_http({"consent_scripts": scripts,
+                         "load_report": [dict(zip(("level", "file", "ref", "field", "reason"), r)) for r in report],
+                         "filler": deps.filler.name, "admin": admin_url is not None, "hosted": is_hosted},
+                        hosted=is_hosted)
+
+    @app.get("/api/sample-callers")
+    async def sample_caller_list(request: Request) -> dict:
+        """The sample callers, read from the data folder's generated file (never from the database, whose account
+        cannot read customers). Empty unless that file exists and matches the folder's data files; in hosted mode
+        also empty unless the data is the bundled sample and the other-data override is off."""
+        settings = d(request).settings
+        if is_hosted and not hosted.lists_sample_callers(settings, os.environ):
+            return {"callers": []}
+        return {"callers": sample_callers.served(ROOT / settings.data.folder)}
 
     @app.post("/api/conversations")
     async def create(request: Request, body: ControlsBody) -> dict:
         deps = d(request)
         if is_hosted:
             visitor_limit(request, starts)
+            body = ControlsBody()  # the consent script and date are operator controls, off in hosted mode
         today = _today(body.today)
         script = body.consent_script if body.consent_script is not None else "default"
         async with deps.db.conversation(None) as conn:
@@ -405,12 +442,13 @@ def create_app(deps: Deps | None = None, admin_database_url: str | None = None, 
             state, script, today = await _row(conn, conversation_id)
             turns = await store.transcript(conn, conversation_id)
             events = await events_of(conn, conversation_id)
-        return {"state": state,
+            verified = await _verified(conn, conversation_id)
+        return for_http({"state": state,
                 "turns": [{"turn_no": t["turn_no"], "message": t["message"], "reply": t["reply"],
                            "state_after": t["state_after"], "inspector": with_events(t["record"], events.get(t["turn_no"])),
                            "turn_id": t["id"]}
                           for t in turns],
-                "controls": _controls(deps.settings, script, today)}
+                "controls": _controls(deps.settings, script, today)}, hosted=is_hosted, verified_party=verified)
 
     @app.post("/api/conversations/{conversation_id}/messages")
     async def message(request: Request, conversation_id: UUID, body: MessageBody,
@@ -432,19 +470,24 @@ def create_app(deps: Deps | None = None, admin_database_url: str | None = None, 
         else:
             async with hosted.request_deps(deps, key) as turn_deps:  # the key's clients live for this turn only
                 result = await run_turn(turn_deps, conversation_id, body.text)
-        return {"turn_id": result.turn_id, "reply": result.reply, "state": result.state.value,
-                "inspector": result.inspector}
+        verified = None
+        if not is_hosted:
+            async with deps.db.conversation(conversation_id) as conn:
+                verified = await _verified(conn, conversation_id)
+        return for_http({"turn_id": result.turn_id, "reply": result.reply, "state": result.state.value,
+                         "inspector": result.inspector}, hosted=is_hosted, verified_party=verified)
 
-    @app.patch("/api/conversations/{conversation_id}/controls")
-    async def controls(request: Request, conversation_id: UUID, body: ControlsBody) -> dict:
-        deps = d(request)
-        today = _today(body.today)
-        async with deps.db.conversation(conversation_id) as conn:
-            await _row(conn, conversation_id)
-            await _check_script(conn, body.consent_script)
-            await store.set_controls(conn, conversation_id, consent_script=body.consent_script, today=today)
-            _, script, today = await _row(conn, conversation_id)
-        return {"controls": _controls(deps.settings, script, today)}
+    if not is_hosted:  # the consent script and date are operator controls: a stranger never sets them
+        @app.patch("/api/conversations/{conversation_id}/controls")
+        async def controls(request: Request, conversation_id: UUID, body: ControlsBody) -> dict:
+            deps = d(request)
+            today = _today(body.today)
+            async with deps.db.conversation(conversation_id) as conn:
+                await _row(conn, conversation_id)
+                await _check_script(conn, body.consent_script)
+                await store.set_controls(conn, conversation_id, consent_script=body.consent_script, today=today)
+                _, script, today = await _row(conn, conversation_id)
+            return {"controls": _controls(deps.settings, script, today)}
 
     @app.get("/api/conversations/{conversation_id}/outbox")
     async def outbox(request: Request, conversation_id: UUID) -> list[dict]:
@@ -455,12 +498,16 @@ def create_app(deps: Deps | None = None, admin_database_url: str | None = None, 
                 "SELECT subject, body FROM outbox WHERE conversation_id = %s ORDER BY id", [conversation_id])).fetchall()
         return [mask_all({"subject": sub, "body": text, "recipient": RECIPIENT}) for sub, text in rows]
 
-    @app.post("/api/turns/{turn_id}/feedback")
-    async def feedback(request: Request, body: FeedbackBody,
+    @app.post("/api/conversations/{conversation_id}/turns/{turn_id}/feedback")
+    async def feedback(request: Request, conversation_id: UUID, body: FeedbackBody,
                        turn_id: int = PathParam(ge=1, le=MAX_TURN_ID)) -> dict:
+        """Rate one of this conversation's turns. Another conversation's turn, or an unknown conversation, answers
+        exactly as a turn that does not exist."""
         deps = d(request)
-        async with deps.db.conversation(None) as conn:
-            found, span_id = await store.set_rating(conn, turn_id, body.rating, body.comment)
+        if is_hosted:
+            visitor_limit(request, ratings)
+        async with deps.db.conversation(conversation_id) as conn:
+            found, span_id = await store.set_rating(conn, conversation_id, turn_id, body.rating, body.comment)
         if not found:
             raise ApiError("turn_not_found")
         safe_feedback(deps.turn_log, span_id, rating=1 if body.rating == 1 else 0, comment=body.comment)
@@ -491,7 +538,7 @@ def create_app(deps: Deps | None = None, admin_database_url: str | None = None, 
             except admin.InvalidChange:
                 raise ApiError("invalid_request") from None
             try:
-                updated = await admin.change_claim(admin_url, case_id, row[0], **changes)
+                updated = await admin.change_claim(admin_url, conversation_id, case_id, row[0], **changes)
             except LookupError:
                 raise ApiError("claim_not_found") from None
             return {"ok": True, "updated_at": updated.isoformat()}

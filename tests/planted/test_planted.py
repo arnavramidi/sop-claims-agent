@@ -174,6 +174,22 @@ async def test_a_reply_naming_a_claim_that_is_not_in_the_facts_is_rewritten_once
     assert r.inspector["reply_source"] == "template" and "CL-2011" not in r.reply
 
 
+async def test_a_reply_that_negates_a_needed_document_is_rewritten_once_then_replaced(deps, margaret):
+    """The wording model says a document the facts list as needed is not required, twice."""
+    before = len(deps.wording.rewrites)
+    bad = "Claim CL-2048 is denied. The pathology report is not required, so you only need the office note."
+    deps.wording.queue([bad, bad])
+    r = await say(deps, margaret, "about CL-2048", make_form(quoted_claim_number=True, need="denial_question"),
+                  stated(claim_number="CL-2048"))
+    assert any("pathology report" in f.text and "needed" in f.text for f in facts(r))
+    first = r.inspector["checks"][0]
+    assert any('"not required"' in f and "the facts state it without a negation" in f for f in first["invented"])
+    assert len(deps.wording.rewrites) - before == 1
+    assert any(f.startswith("polarity") for f in deps.wording.rewrites[-1][2])
+    assert r.inspector["reply_source"] == "template" and "not required" not in r.reply
+    assert r.inspector["checks"][-1]["passed"] is True
+
+
 # ---- a model that refuses, or answers outside the options ---------------------------------------------------------
 
 async def test_a_refused_need_goes_through_the_unsure_steps_and_ends_in_a_question_to_the_caller(deps, margaret):

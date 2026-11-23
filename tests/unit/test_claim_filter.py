@@ -8,7 +8,7 @@ from claims_agent.settings import load_thresholds
 T = load_thresholds()
 
 
-# ---- the brief's tests ----------------------------------------------------------------------------------------
+# ---- core behaviour ----------------------------------------------------------------------------------------
 
 def test_an_unsure_answer_does_not_include_the_value():
     f = filter_from_form(make_form(claim_types={"healthcare": 0.4, "dental": 0.2}), T); assert f.types == frozenset()
@@ -18,7 +18,7 @@ def test_no_year_said_means_all_years():
     assert filter_from_form(make_form(months={1: 0.9}, no_year_said=True), T).years == frozenset()
 
 
-def test_r6_both_types_and_both_months():
+def test_both_types_and_both_months():
     f = filter_from_form(make_form(claim_types={"healthcare": 0.9, "dental": 0.8}, months={1: 0.9, 2: 0.9}), T)
     assert f.types == {"healthcare", "dental"} and f.months == {1, 2}
 
@@ -27,21 +27,21 @@ def test_the_need_implies_a_condition():
     assert with_need(ClaimFilter(), "denial_question").has_denial_reason and with_need(ClaimFilter(), "document_submission").has_documents
 
 
-def test_ruling_10_relax_drops_the_least_sure_condition_first():
+def test_relax_drops_the_least_sure_condition_first():
     f = ClaimFilter(types=frozenset({"healthcare"}), months=frozenset({3}), sureness={"types": 0.9, "months": 0.6})
     assert relax(f).months == frozenset() and relax(f).types == {"healthcare"}
 
 
-def test_ruling_10_ties_drop_month_before_type():
+def test_ties_drop_month_before_type():
     f = ClaimFilter(types=frozenset({"auto"}), months=frozenset({3}), sureness={"types": 0.8, "months": 0.8}); assert relax(f).types == {"auto"}
 
 
-def test_r19_a_correction_replaces_only_that_value():
+def test_a_correction_replaces_only_that_value():
     old = ClaimFilter(types=frozenset({"healthcare"}), months=frozenset({1}))
     assert merge(old, ClaimFilter(months=frozenset({2})), "correcting") == ClaimFilter(types=frozenset({"healthcare"}), months=frozenset({2}))
 
 
-def test_m4_a_new_search_does_not_combine_with_the_old():
+def test_a_new_search_does_not_combine_with_the_old():
     assert merge(ClaimFilter(types=frozenset({"auto"})), ClaimFilter(types=frozenset({"healthcare"})), "new_search").types == {"healthcare"}
 
 
@@ -82,7 +82,7 @@ def test_merge_with_nothing_stored_is_the_new_filter():
     assert merge(None, new, "narrowing") == new
 
 
-def test_ruling_10_the_full_tie_order():
+def test_the_full_tie_order():
     f = ClaimFilter(types=frozenset({"auto"}), statuses=frozenset({"open"}), months=frozenset({3}),
                     years=frozenset({2026}), relative="this_year")
     dropped = []
@@ -105,7 +105,7 @@ def test_relax_keeps_what_the_need_implies():
     assert relax(f) == ClaimFilter(has_denial_reason=True)
 
 
-# ---- fix round 1 ---------------------------------------------------------------------------------------------------
+# ---- further cases ---------------------------------------------------------------------------------------------------
 
 import pytest  # noqa: E402
 

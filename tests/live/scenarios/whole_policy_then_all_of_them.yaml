@@ -1,0 +1,22 @@
+id: whole_policy_then_all_of_them
+about: A question about the whole policy gets every claim told with its summary and one question, not "your description does not distinguish"; "all of them" is never answered with the same list again (a conversation on the running app).
+group: resolving
+turns:
+  - say: "Hi, this is Margaret Chen. My date of birth is 1985-03-15 and the last four of my SSN are 4472."
+    expect:
+      verified: P9
+  - say: "whats the deal with Policy POL-9921"
+    expect:
+      instructions_lack: [which_claim]
+      reply_lacks: ["distinguish", "tell (them|these( claims)?) apart"]
+      check_passed: true
+  - say: "give me the information regarding all of them"
+    expect:
+      focus: [CL-2102, CL-2048, CL-1899, CL-2011]
+      instructions_lack: [which_claim]
+  - say: "all of the claims"
+    expect:
+      instructions_lack: [which_claim]
+  - say: "I'm saying I want the details for all of the claims"
+    expect:
+      instructions_lack: [which_claim]

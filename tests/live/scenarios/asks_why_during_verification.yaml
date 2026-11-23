@@ -1,0 +1,23 @@
+id: asks_why_during_verification
+about: A caller asks why the agent needs their details, then which ID it means; each question is read against what the agent just asked, answered, and the caller then verifies.
+group: identity
+turns:
+  - say: "Hi, I have a question about my claim."
+    expect:
+      state: VERIFY_ID
+      verified: none
+  - say: "Why do you need all that?"
+    expect:
+      state: VERIFY_ID
+      verified: none
+      instructions: [explain_step]
+      judge: "The agent's last reply explains why the identifying details are needed (to protect the caller's information) and asks for them again, without repeating its previous reply word for word."
+  - say: "Which ID do you mean?"
+    expect:
+      state: VERIFY_ID
+      verified: none
+      reply_has: ["SSN|national ID"]
+      judge: "The agent's last reply makes clear that the ID it means is the last four digits of an SSN or national ID, and does not say which type this caller has."
+  - say: "Margaret Chen, born 1985-03-15, and the last four are 4472."
+    expect:
+      verified: P9

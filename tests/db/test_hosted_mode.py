@@ -194,9 +194,11 @@ def test_a_whole_verified_conversation_leaves_the_key_nowhere(hosted_client, cli
     got = hosted_client.get(f"/api/conversations/{cid}")
     bodies += [got.text, hosted_client.get(f"/api/conversations/{cid}/outbox").text, hosted_client.get("/api/meta").text]
     turn_id = got.json()["turns"][-1]["turn_id"]
-    bodies.append(hosted_client.post(f"/api/turns/{turn_id}/feedback", json={"rating": 1, "comment": "fine"}).text)
+    bodies.append(hosted_client.post(f"/api/conversations/{cid}/turns/{turn_id}/feedback",
+                                     json={"rating": 1, "comment": "fine"}).text)
     assert client_factory.keys == [SENTINEL, SENTINEL] and client_factory.closed == 2  # built per request, then closed
-    events = [e for t in got.json()["turns"] for e in t["inspector"].get("events", [])]
+    with psycopg.connect(api_db.loader_url) as conn:  # hosted responses carry no panel: read the stored events
+        events = [b for (b,) in conn.execute("SELECT body FROM events WHERE conversation_id = %s", [cid]).fetchall()]
     assert events, "the turns recorded events"
     assert len(trace.sent) == 3  # two turns and a rating were traced
     for where, text in [("tables", dump_all_tables(api_db)), ("logs", caplog.text), ("responses", "\n".join(bodies)),
@@ -373,5 +375,65 @@ def test_outside_hosted_mode_the_header_is_ignored(api_db, client_factory, trace
         r = c.post(f"/api/conversations/{_new(c)}/messages", json={"text": "hello there"}, headers=KEY)
         assert c.get("/api/meta").json()["hosted"] is False
         c.portal.call(app.state.deps.db.close)
-    assert r.status_code == 401 and r.json()["error"] == "model_key_rejected"  # the server's own (absent) key
+    assert r.status_code == 401 and r.json()["error"] == "model_key_not_set"  # the server's own (absent) key
     assert client_factory.keys == []
+
+
+# ---- what a stranger is shown ------------------------------------------------------------------------------------
+
+def _party_ids() -> set[str]:
+    from claims_agent.loader.read import read_folder
+    return {c.party_id for c in read_folder(hosted.SAMPLE_DATA).customers}
+
+
+def test_hosted_responses_carry_no_operator_panel_and_no_party_id(hosted_client, scripted):
+    import re
+    cid = _new(hosted_client)
+    scripted.next(make_form(**GAVE), stated(date_of_birth=["1985-03-15"]))
+    first = hosted_client.post(f"/api/conversations/{cid}/messages", json={"text": "my date of birth is 1985-03-15"},
+                               headers=KEY)
+    scripted.next(make_form(**GAVE), BRIEF_SAID)
+    second = hosted_client.post(f"/api/conversations/{cid}/messages", json={"text": BRIEF_MSG}, headers=KEY)
+    assert first.status_code == second.status_code == 200 and second.json()["state"] == "RESOLVE_INTENT"  # verified
+    got = hosted_client.get(f"/api/conversations/{cid}")
+    meta = hosted_client.get("/api/meta")
+    assert "inspector" not in first.json() and "inspector" not in second.json()
+    assert got.json()["turns"] and all("inspector" not in t for t in got.json()["turns"])
+    assert "load_report" not in meta.json() and meta.json()["hosted"] is True
+    bodies = "\n".join(r.text for r in (first, second, got, meta, hosted_client.get(f"/api/conversations/{cid}/outbox")))
+    for party in _party_ids():
+        assert not re.search(rf"\b{re.escape(party)}\b", bodies), party
+    assert "tally" not in bodies
+
+
+def test_the_controls_are_off_in_hosted_mode(hosted_client, api_db):
+    r = hosted_client.post("/api/conversations", json={"consent_script": "timeout", "today": "2027-01-01"})
+    cid = r.json()["conversation_id"]
+    assert r.json()["controls"]["consent_script"] == "default" and r.json()["controls"]["today"] != "2027-01-01"
+    patched = hosted_client.patch(f"/api/conversations/{cid}/controls", json={"consent_script": "timeout"})
+    assert patched.status_code == 404 and patched.json()["error"] == "not_found"
+    with psycopg.connect(api_db.loader_url) as conn:
+        assert conn.execute("SELECT consent_script, today FROM conversations WHERE id = %s", [cid]).fetchone() == \
+            ("default", None)
+
+
+def test_outside_hosted_mode_the_panel_and_load_report_are_returned(api_db, client_factory, trace, scripted):
+    app = _app(api_db, trace, hosted_mode=False)
+    with TestClient(app) as c:
+        cid = _new(c)
+        assert "load_report" in c.get("/api/meta").json()
+        assert c.patch(f"/api/conversations/{cid}/controls", json={"today": "2026-03-20"}).status_code == 200
+        c.portal.call(app.state.deps.db.close)
+
+
+def test_ratings_are_rate_limited_per_address(api_db, client_factory, scripted, trace):
+    app = _app(api_db, trace, settings=_settings(messages_per_minute=2))
+    with TestClient(app) as c:
+        cid = _new(c)
+        r = c.post(f"/api/conversations/{cid}/messages", json={"text": "hello there"}, headers=KEY)
+        turn_id = r.json()["turn_id"]
+        path = f"/api/conversations/{cid}/turns/{turn_id}/feedback"
+        assert [c.post(path, json={"rating": 1}).status_code for _ in range(2)] == [200, 200]
+        r = c.post(path, json={"rating": -1})
+        assert r.status_code == 429 and r.json()["error"] == "rate_limited"
+        c.portal.call(app.state.deps.db.close)

@@ -13,20 +13,20 @@ again when the stored filter is read back for a new description, because the nee
 from collections.abc import Sequence
 from dataclasses import replace
 
-from claims_agent.db.claims import (Claim, ClaimFilter, count, fetch, fetch_ids, filter_from_dict, filter_from_form,
-                                    filter_to_dict, find_numbered, merge, most_even_split, overview, relax,
-                                    with_need)
+from claims_agent.db.claims import (Claim, ClaimFilter, chosen_among, count, fetch, fetch_ids, filter_from_dict,
+                                    filter_from_form, filter_to_dict, find_numbered, merge, most_even_split, overview,
+                                    relax, with_need)
 from claims_agent.db.identity import account_info
 from claims_agent import records
 from claims_agent.rules import calculate, unsure
 from claims_agent.rules.summary_match import NOT_SEPARATED, found_claim_fact, try_summary
 from claims_agent.engine import PLAIN, STEPS, StepOutcome, TurnContext
-from claims_agent.form.read import picked, top_two, yes
+from claims_agent.form.read import picked, yes
 from claims_agent.memory import FocusMemory, Memory, Pending
 from claims_agent.reply.brief import Fact, ReplyPart
 from claims_agent.states import State
 
-GENERAL = "general_claim_question"  # Ruling 6: claims in focus and no clear need open with Status
+GENERAL = "general_claim_question"  # Claims in focus and no clear need open with Status
 NOT_A_NEED = (None, "none", "account_question")
 SPLIT_WORDS = {"case_type": "the claim type", "status": "the status", "year": "the year", "month": "the month"}
 FULL = ("case_type", "status", "created_at")
@@ -81,8 +81,12 @@ def _differing(claims: list[Claim]) -> tuple[str, ...]:
 
 
 def _which_claim(claims: list[Claim], said: tuple[Fact, ...] = ()) -> ReplyPart:
+    """The claims to choose from, each by what tells them apart and by its summary on file (the caller's own words
+    for a claim are often closer to its summary than to its type or date)."""
+    attrs = _differing(claims)
+    attrs = attrs if "summary" in attrs else (*attrs, "summary")
     facts = (Fact("count", f"Claims to choose from: {len(claims)}"), *said,
-             *(_describe(c, _differing(claims)) for c in claims))
+             *(_describe(c, attrs) for c in claims))
     return ReplyPart("which_claim", facts, sentences("Which claim do you mean?", facts), pending=WHICH_CLAIM)
 
 
@@ -160,7 +164,7 @@ class _Resolve:
             self.parts.append(await self.overview_part(everything))
 
     async def no_match(self, described: ClaimFilter, how_many: str) -> None:
-        """Nothing matched: say so, then show the nearest matches (the weakest conditions dropped, Ruling 10), or what
+        """Nothing matched: say so, then show the nearest matches (the weakest conditions dropped), or what
         is on file when nothing of the description is left. Never a value the caller gave; a list never claims more
         entries than it shows."""
         relaxed = relax(described)
@@ -243,7 +247,9 @@ def _without_summary(part: ReplyPart, claims: Sequence[Claim]) -> ReplyPart:
 
 
 def _need(ctx: TurnContext, t) -> str | None:
-    """The confident pick, else the hint; never "none" or an account question (that is answered with no claim)."""
+    """The confident pick, else the hint; never "none" or an account question (that is answered with no claim). The
+    hint is a need said earlier and not yet applied: once it has settled the need for the claims it was asked about,
+    it is used up (see `step`), so it never decides the need for a claim the caller turns to later."""
     pick = picked(ctx.form.need, t)
     if pick not in NOT_A_NEED:
         return pick
@@ -258,6 +264,34 @@ def _need_turn(ctx: TurnContext, t) -> int:
     if picked(ctx.form.need, t) not in NOT_A_NEED:
         return now
     return ctx.memory.hints.need_turn or now
+
+
+def _asks_the_account(ctx: TurnContext, pick: str | None) -> bool:
+    """Whether the message is answered with what the account holds (its policy number). Not for a message read as a
+    request the line does not handle or as off-topic ("change the phone number on my account" is answered by the
+    offer of a person, not with the policy number). An account question hinted earlier applies only to a message that
+    points at no claim itself: "all of them" after it is about the claims, and a hint answered is used up."""
+    t = ctx.deps.thresholds
+    if picked(ctx.form.about, t) in ("unsupported_insurance", "off_topic"):
+        return False
+    if pick == "account_question":
+        return True
+    points_at_claims = (filter_from_form(ctx.form, t).conditions() or (ctx.stated.claim_number or "").strip()
+                        or picked(ctx.form.how_many, t) not in (None, "none"))
+    return (_first_pass(ctx.memory.focus) and pick in (None, "none") and not points_at_claims
+            and ctx.memory.hints.need == "account_question")
+
+
+async def _fits_none_shown(r: _Resolve, new: ClaimFilter) -> bool:
+    """Whether a description read as narrowing fits none of the claims it would narrow (the list just shown, else the
+    claims in focus). Narrowing picks among those claims, so a description none of them fits describes other claims:
+    added to the shown claims' own filter it could only find nothing. A time counted from today is left out of the
+    check: "the newer one" picks among the shown claims, whatever is newest overall."""
+    shown = r.focus.last_list or r.focus.claim_ids
+    described = replace(new, relative="none")
+    if not shown or not described.conditions():
+        return False
+    return not await chosen_among(r.conn, described, r.today, shown)
 
 
 async def _which(r: _Resolve, total: int, need: str | None, how_many: str) -> list[Claim] | None:
@@ -296,15 +330,18 @@ async def _which(r: _Resolve, total: int, need: str | None, how_many: str) -> li
         await r.on_file(total)
         return None
 
-    if listed is not None and focus.last_list:
-        if listed in focus.last_list:
+    # The claims the caller can point at: the list just shown, else several claims in focus (the form is given them
+    # as the list, in the order they were told).
+    pointable = focus.last_list or (focus.claim_ids if len(focus.claim_ids) > 1 else [])
+    if listed is not None and pointable:
+        if listed in pointable:
             claims = await fetch_ids(conn, [listed])
             if claims:
                 focus.match_count = 1
                 r.fired.append({"rule": "listed_claim"})
                 return claims
         else:  # X14: the model picked a claim that was not shown
-            shown = await fetch_ids(conn, focus.last_list)
+            shown = await fetch_ids(conn, pointable)
             if shown:
                 r.parts.append(_which_claim(shown))
                 r.fired.append({"rule": "listed_claim", "rejected": True})
@@ -315,6 +352,14 @@ async def _which(r: _Resolve, total: int, need: str | None, how_many: str) -> li
     pending = ctx.memory.pending
     if focus.last_list and pending is not None and pending.kind == WHICH_CLAIM.kind and not new.conditions():
         shown = await fetch_ids(conn, focus.last_list)
+        # "All of them", "both": a confident several or all with nothing more said answers the question with the
+        # claims listed (a list never holds more than the focus allows). Showing one too many of the caller's own
+        # claims is harmless; asking the same question again is not.
+        if len(shown) >= 2 and how_many in ("several", "all"):
+            focus.match_count, focus.told_together = len(shown), True
+            r.fired.append({"rule": "listed_all", "how_many": how_many})
+            r.found(shown)
+            return shown
         if len(shown) >= 2:
             chosen = await r.by_summary(shown)
             if chosen is not None:
@@ -338,9 +383,21 @@ async def _which(r: _Resolve, total: int, need: str | None, how_many: str) -> li
         r.parts.append(ReplyPart("ask_need", plain=PLAIN["ask_need"], pending=OPEN_NEED))
         r.fired.append({"rule": "no_claim_reference"})
         return None
+    if relation == "narrowing" and await _fits_none_shown(r, new):
+        relation = "new_search"  # "back to the denied one" while the auto claim is in focus: not a narrowing of it
+        r.fired.append({"rule": "narrowing_fits_none_shown"})
     described = ClaimFilter() if all_afresh else merge(stored, new, relation)
     if how_many == "same_as_before":
         how_many = "all" if ctx.memory.pending is not None and ctx.memory.pending.kind == OVERVIEW.kind else "one"
+    # One claim meant, but nothing describes it, not even the need, and the message names no claim ("what's the deal
+    # with my policy?"): there is no description to tell the claims apart by, so the caller is shown all of them (the
+    # overview past the focus limit) and asked which to go into. Nothing is narrowed. ("My claim" still gets the list
+    # or the narrowing question.)
+    if how_many == "one" and with_need(described, need).is_empty() and not yes(form.mentions_claim, t):
+        r.fired.append({"rule": "nothing_described"})
+        how_many = "all"
+    # Several or all claims with nothing describing them ("all of the claims"): told together, then one question.
+    focus.told_together = how_many in ("several", "all") and with_need(described, need).is_empty()
     return await r.describe(described, need, how_many)
 
 
@@ -362,12 +419,13 @@ async def step(ctx: TurnContext) -> StepOutcome:
 
     # 2. An account question needs no claim.
     pick = picked(form.need, t)
-    if pick == "account_question" or (_first_pass(focus) and pick in (None, "none")
-                                      and ctx.memory.hints.need == "account_question"):
+    if _asks_the_account(ctx, pick):
         info = await account_info(conn, ctx.conversation.id)
         facts = (Fact("account", f"Policy number: {info[1]}"),) if info is not None and info[1] else ()
         r.parts.append(ReplyPart("answer", facts, sentences("Here is what I have on file.", facts)))
         r.fired.append({"rule": "account_question"})
+        if ctx.memory.hints.need == "account_question":
+            ctx.memory.hints.need = None  # answered: used up, like any need hint
         return r.stay(grounded=bool(facts))
 
     need = _need(ctx, t)
@@ -396,6 +454,7 @@ async def step(ctx: TurnContext) -> StepOutcome:
     if done is not None:
         return done
 
+    focus.told_together = False  # set again below when this turn's claims are told together
     claims = await _which(r, total, need, how_many)
     if claims is None:
         return r.stay()
@@ -426,9 +485,11 @@ async def step(ctx: TurnContext) -> StepOutcome:
     # 6. Both known: on to the answers. When they open with the claims' status, the line naming a claim found leaves
     # its summary out: the opening describes the claim itself, and the summary would only repeat it.
     from claims_agent.rules.process_case import gives_opening  # late: that module imports this one
-    if gives_opening(form, t, need, note, claims, ctx.deps.settings):
+    # Several claims keep their summaries: the summary is what tells them apart in an overview.
+    if len(claims) == 1 and gives_opening(form, t, need, note, claims, ctx.deps.settings, ctx.memory.request):
         r.parts = [_without_summary(p, claims) for p in r.parts]
     focus.need, focus.need_note = need, note
+    ctx.memory.hints.need = None  # used up: a later claim starts from what the caller asks then
     if ctx.recorder is not None:
         ctx.record("resolved_need", need=need, set_on_turn=need_read_on,
                    shaped_by=records.shaped_by(ctx.recorder, form, ctx.request, t))

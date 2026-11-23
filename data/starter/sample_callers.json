@@ -1,0 +1,450 @@
+{
+  "note": "Invented sample data for trying the agent. Every person, number and address here is made up. The page shows this list only while the data folder is the bundled sample data it was generated from.",
+  "agent_today": "2026-03-05",
+  "digest": "689106327919aa26fa9f963f2e2e884f5938986040ee35cf9aeb1d6a04d560e6",
+  "callers": [
+    {
+      "party_id": "P9",
+      "name": "Margaret Chen",
+      "name_aliases": [],
+      "policy_number": "POL-9921",
+      "date_of_birth": "1985-03-15",
+      "id_type": "ssn_last4",
+      "id_last4": "4472",
+      "phone": "+16505212836",
+      "phone_aliases": [],
+      "email": "margaret@email.com",
+      "email_aliases": [],
+      "claims": [
+        {
+          "case_id": "CL-2048",
+          "case_type": "healthcare",
+          "status": "denied",
+          "created": "2026-01-12",
+          "summary": "Healthcare claim denied due to missing pathology report and office note",
+          "appeal_deadline": "2026-03-18",
+          "appeal_deadline_note": "13 days after the agent's date",
+          "documents_needed": [
+            "pathology report",
+            "office note"
+          ],
+          "expected_reimbursement_amount": "0.00",
+          "allowed_max_amount": "1450.00",
+          "net_pay": "0.00",
+          "net_fee": "1450.00"
+        },
+        {
+          "case_id": "CL-2011",
+          "case_type": "healthcare",
+          "status": "closed",
+          "created": "2025-01-28",
+          "summary": "Healthcare claim settled",
+          "appeal_deadline": null,
+          "appeal_deadline_note": null,
+          "documents_needed": [],
+          "expected_reimbursement_amount": "780.00",
+          "allowed_max_amount": "800.00",
+          "net_pay": "780.00",
+          "net_fee": "800.00"
+        },
+        {
+          "case_id": "CL-1899",
+          "case_type": "dental",
+          "status": "closed",
+          "created": "2025-11-03",
+          "summary": "Dental claim completed",
+          "appeal_deadline": null,
+          "appeal_deadline_note": null,
+          "documents_needed": [],
+          "expected_reimbursement_amount": "425.00",
+          "allowed_max_amount": "450.00",
+          "net_pay": "425.00",
+          "net_fee": "450.00"
+        },
+        {
+          "case_id": "CL-2102",
+          "case_type": "auto",
+          "status": "open",
+          "created": "2026-02-28",
+          "summary": "Auto claim in progress",
+          "appeal_deadline": null,
+          "appeal_deadline_note": null,
+          "documents_needed": [],
+          "expected_reimbursement_amount": "3200.00",
+          "allowed_max_amount": "3500.00",
+          "net_pay": "0.00",
+          "net_fee": "3500.00"
+        }
+      ],
+      "representatives": [
+        {
+          "name": "David Chen",
+          "relationship": "son"
+        }
+      ],
+      "good_for": "The main walk-through: a denied healthcare claim that needs two documents, plus closed and open claims of other types. A listed representative (her son) can ask on her behalf.",
+      "opening_messages": [
+        {
+          "label": "Name, birth date and ID",
+          "text": "My name is Margaret Chen, my date of birth is March 15, 1985 and the last four digits of my social security number are 4472. What is the status of my denied claim?"
+        },
+        {
+          "label": "Her son, as representative",
+          "text": "Hello, I'm David Chen, Margaret Chen's son. Her date of birth is March 15, 1985 and the last four digits of her social security number are 4472. May I ask about her denied claim?"
+        }
+      ]
+    },
+    {
+      "party_id": "P7",
+      "name": "Ava Lopez",
+      "name_aliases": [],
+      "policy_number": "POL-1044",
+      "date_of_birth": "1990-08-21",
+      "id_type": "ssn_last4",
+      "id_last4": "9180",
+      "phone": "+16503882920",
+      "phone_aliases": [],
+      "email": "ava.lopez@email.com",
+      "email_aliases": [],
+      "claims": [],
+      "representatives": [],
+      "good_for": "A caller with no claims on file: after verifying, the agent has nothing to look up.",
+      "opening_messages": [
+        {
+          "label": "Name, birth date and ID",
+          "text": "My name is Ava Lopez, my date of birth is August 21, 1990 and the last four digits of my social security number are 9180. Do I have any open claims?"
+        }
+      ]
+    },
+    {
+      "party_id": "P12",
+      "name": "Ma Tian",
+      "name_aliases": [],
+      "policy_number": "POL-8836",
+      "date_of_birth": "1964-09-10",
+      "id_type": "national_id_last4",
+      "id_last4": "6688",
+      "phone": "+16502088799",
+      "phone_aliases": [],
+      "email": "matian@example.com",
+      "email_aliases": [],
+      "claims": [
+        {
+          "case_id": "CL-3001",
+          "case_type": "healthcare",
+          "status": "denied",
+          "created": "2026-03-01",
+          "summary": "Healthcare claim denied because the diagnosis report is missing",
+          "appeal_deadline": "2026-04-15",
+          "appeal_deadline_note": "41 days after the agent's date",
+          "documents_needed": [
+            "diagnosis report"
+          ],
+          "expected_reimbursement_amount": "0.00",
+          "allowed_max_amount": "1200.00",
+          "net_pay": "0.00",
+          "net_fee": "1200.00"
+        }
+      ],
+      "representatives": [],
+      "good_for": "A national ID instead of a social security number, and one denied claim missing one document.",
+      "opening_messages": [
+        {
+          "label": "Name, birth date and ID",
+          "text": "My name is Ma Tian, my date of birth is September 10, 1964 and the last four digits of my national ID number are 6688. Why was my claim denied?"
+        }
+      ]
+    },
+    {
+      "party_id": "P13",
+      "name": "Ya Wen Li",
+      "name_aliases": [
+        "Yaven Li"
+      ],
+      "policy_number": "POL-7742",
+      "date_of_birth": "1989-12-03",
+      "id_type": "national_id_last4",
+      "id_last4": "5317",
+      "phone": "+16505212830",
+      "phone_aliases": [
+        "+16505212830"
+      ],
+      "email": "yawen.li@gmail.com",
+      "email_aliases": [
+        "yawen.li@example.com"
+      ],
+      "claims": [],
+      "representatives": [],
+      "good_for": "Accepted name, phone and email aliases: the agent also accepts the alternate spellings below.",
+      "opening_messages": [
+        {
+          "label": "Name, birth date and ID",
+          "text": "My name is Ya Wen Li, my date of birth is December 3, 1989 and the last four digits of my national ID number are 5317. What do I still need to send for my claim?"
+        },
+        {
+          "label": "Using the alternate name and email",
+          "text": "Hi, I'm Yaven Li. My date of birth is December 3, 1989 and my email is yawen.li@example.com. Can you look up my claim?"
+        }
+      ]
+    },
+    {
+      "party_id": "P14",
+      "name": "Daniel Okafor",
+      "name_aliases": [],
+      "policy_number": "POL-4410",
+      "date_of_birth": "1978-06-02",
+      "id_type": "ssn_last4",
+      "id_last4": "2051",
+      "phone": "+16505550101",
+      "phone_aliases": [],
+      "email": "daniel.okafor@example.com",
+      "email_aliases": [],
+      "claims": [
+        {
+          "case_id": "CL-4101",
+          "case_type": "healthcare",
+          "status": "denied",
+          "created": "2026-01-20",
+          "summary": "Healthcare claim denied because the treating provider office note is missing",
+          "appeal_deadline": "2026-04-10",
+          "appeal_deadline_note": "36 days after the agent's date",
+          "documents_needed": [
+            "treating provider office note"
+          ],
+          "expected_reimbursement_amount": "0.00",
+          "allowed_max_amount": "980.00",
+          "net_pay": "0.00",
+          "net_fee": "980.00"
+        },
+        {
+          "case_id": "CL-4102",
+          "case_type": "healthcare",
+          "status": "denied",
+          "created": "2026-02-02",
+          "summary": "Healthcare claim denied because the original pathology report is missing",
+          "appeal_deadline": "2026-03-06",
+          "appeal_deadline_note": "1 day after the agent's date",
+          "documents_needed": [
+            "original pathology report"
+          ],
+          "expected_reimbursement_amount": "0.00",
+          "allowed_max_amount": "2300.00",
+          "net_pay": "0.00",
+          "net_fee": "2300.00"
+        }
+      ],
+      "representatives": [],
+      "good_for": "Two denied claims of the same type (healthcare): the agent has to ask which one. One appeal deadline is tomorrow.",
+      "opening_messages": [
+        {
+          "label": "Name, birth date and ID",
+          "text": "My name is Daniel Okafor, my date of birth is June 2, 1978 and the last four digits of my social security number are 2051. Can I still appeal my denied claim?"
+        },
+        {
+          "label": "Name, phone and email",
+          "text": "I'm Daniel Okafor. My phone number is 650-555-0101 and my email is daniel.okafor@example.com. My healthcare claim was denied. What do I need?"
+        }
+      ]
+    },
+    {
+      "party_id": "P15",
+      "name": "Priya Nair",
+      "name_aliases": [],
+      "policy_number": "POL-5521",
+      "date_of_birth": "1992-11-09",
+      "id_type": "ssn_last4",
+      "id_last4": "7733",
+      "phone": "+16505550102",
+      "phone_aliases": [],
+      "email": "priya.nair@example.com",
+      "email_aliases": [],
+      "claims": [
+        {
+          "case_id": "CL-4201",
+          "case_type": "auto",
+          "status": "denied",
+          "created": "2025-12-15",
+          "summary": "Auto claim denied because the repair estimate and the accident scene photos are missing",
+          "appeal_deadline": "2026-02-20",
+          "appeal_deadline_note": "passed 13 days before the agent's date",
+          "documents_needed": [
+            "repair estimate",
+            "supplemental accident scene photos"
+          ],
+          "expected_reimbursement_amount": "0.00",
+          "allowed_max_amount": "4100.00",
+          "net_pay": "0.00",
+          "net_fee": "4100.00"
+        },
+        {
+          "case_id": "CL-4202",
+          "case_type": "dental",
+          "status": "closed",
+          "created": "2025-06-10",
+          "summary": "Dental claim completed",
+          "appeal_deadline": null,
+          "appeal_deadline_note": null,
+          "documents_needed": [],
+          "expected_reimbursement_amount": "310.00",
+          "allowed_max_amount": "350.00",
+          "net_pay": "310.00",
+          "net_fee": "350.00"
+        }
+      ],
+      "representatives": [
+        {
+          "name": "Rohan Nair",
+          "relationship": "spouse"
+        }
+      ],
+      "good_for": "An appeal deadline that has already passed, so the agent must not say days are left. Also a listed spouse as representative, and a closed dental claim.",
+      "opening_messages": [
+        {
+          "label": "Name, birth date and ID",
+          "text": "My name is Priya Nair, my date of birth is November 9, 1992 and the last four digits of my social security number are 7733. How long do I have to appeal my denied auto claim?"
+        },
+        {
+          "label": "Her spouse, as representative",
+          "text": "Hello, I'm Rohan Nair, Priya Nair's spouse. Her date of birth is November 9, 1992 and the last four digits of her social security number are 7733. May I ask about her auto claim?"
+        }
+      ]
+    },
+    {
+      "party_id": "P16",
+      "name": "José García",
+      "name_aliases": [],
+      "policy_number": "POL-6630",
+      "date_of_birth": "1983-04-27",
+      "id_type": "national_id_last4",
+      "id_last4": "3946",
+      "phone": "+16505550103",
+      "phone_aliases": [],
+      "email": "jose.garcia@example.com",
+      "email_aliases": [],
+      "claims": [
+        {
+          "case_id": "CL-4301",
+          "case_type": "healthcare",
+          "status": "open",
+          "created": "2026-02-18",
+          "summary": "Healthcare claim in progress; the treating provider office note is still needed",
+          "appeal_deadline": null,
+          "appeal_deadline_note": null,
+          "documents_needed": [
+            "treating provider office note"
+          ],
+          "expected_reimbursement_amount": "640.00",
+          "allowed_max_amount": "700.00",
+          "net_pay": "0.00",
+          "net_fee": "700.00"
+        },
+        {
+          "case_id": "CL-4302",
+          "case_type": "dental",
+          "status": "closed",
+          "created": "2025-09-14",
+          "summary": "Dental claim completed",
+          "appeal_deadline": null,
+          "appeal_deadline_note": null,
+          "documents_needed": [],
+          "expected_reimbursement_amount": "520.00",
+          "allowed_max_amount": "540.00",
+          "net_pay": "520.00",
+          "net_fee": "540.00"
+        }
+      ],
+      "representatives": [],
+      "good_for": "A name with accents (the database compares names ignoring accents, so \"Jose Garcia\" works). One open claim with a document still outstanding and no denial, and a closed dental claim.",
+      "opening_messages": [
+        {
+          "label": "Name written with accents",
+          "text": "My name is José García, my date of birth is April 27, 1983 and the last four digits of my national ID number are 3946. What do I still need to send for my open claim?"
+        },
+        {
+          "label": "Name without accents",
+          "text": "My name is Jose Garcia, my date of birth is April 27, 1983 and the last four digits of my national ID number are 3946. What is the status of my claim?"
+        }
+      ]
+    },
+    {
+      "party_id": "P17",
+      "name": "Sam Rivera",
+      "name_aliases": [],
+      "policy_number": "POL-7001",
+      "date_of_birth": "1987-02-14",
+      "id_type": "ssn_last4",
+      "id_last4": "1208",
+      "phone": "+16505550104",
+      "phone_aliases": [],
+      "email": "sam.rivera@example.com",
+      "email_aliases": [],
+      "claims": [
+        {
+          "case_id": "CL-4401",
+          "case_type": "auto",
+          "status": "denied",
+          "created": "2026-01-30",
+          "summary": "Auto claim denied because the repair estimate is missing",
+          "appeal_deadline": "2026-03-05",
+          "appeal_deadline_note": "is the agent's date: the last day",
+          "documents_needed": [
+            "repair estimate"
+          ],
+          "expected_reimbursement_amount": "0.00",
+          "allowed_max_amount": "2750.00",
+          "net_pay": "0.00",
+          "net_fee": "2750.00"
+        }
+      ],
+      "representatives": [],
+      "good_for": "Shares a full name with another caller (Sam Rivera, P18): the name alone is not enough, and three details must single out one person. The appeal deadline is today.",
+      "opening_messages": [
+        {
+          "label": "Name, birth date and ID",
+          "text": "My name is Sam Rivera, my date of birth is February 14, 1987 and the last four digits of my social security number are 1208. Is my denied claim still open to appeal?"
+        },
+        {
+          "label": "Name and one other detail only (not enough)",
+          "text": "Hi, I'm Sam Rivera and my phone number is 650-555-0104. What is the status of my claim?"
+        }
+      ]
+    },
+    {
+      "party_id": "P18",
+      "name": "Sam Rivera",
+      "name_aliases": [],
+      "policy_number": "POL-7002",
+      "date_of_birth": "1995-09-30",
+      "id_type": "ssn_last4",
+      "id_last4": "8365",
+      "phone": "+16505550105",
+      "phone_aliases": [],
+      "email": "sam.rivera.work@example.com",
+      "email_aliases": [],
+      "claims": [
+        {
+          "case_id": "CL-4501",
+          "case_type": "dental",
+          "status": "closed",
+          "created": "2025-12-01",
+          "summary": "Dental claim completed",
+          "appeal_deadline": null,
+          "appeal_deadline_note": null,
+          "documents_needed": [],
+          "expected_reimbursement_amount": "180.00",
+          "allowed_max_amount": "200.00",
+          "net_pay": "180.00",
+          "net_fee": "200.00"
+        }
+      ],
+      "representatives": [],
+      "good_for": "The other Sam Rivera: only the name is the same as P17, so a different birth date, ID, phone or email picks this person out. One closed dental claim.",
+      "opening_messages": [
+        {
+          "label": "Name, birth date and ID",
+          "text": "My name is Sam Rivera, my date of birth is September 30, 1995 and the last four digits of my social security number are 8365. Do I have a claim on file?"
+        }
+      ]
+    }
+  ]
+}

@@ -6,14 +6,13 @@ from datetime import date
 # The kinds of detail that count towards verification. The policy number is not one of them.
 KINDS = ("name", "dob", "phone", "email", "id")
 
-# Limits the database enforces too, so one call cannot test many guesses at once.
-MAX_NAME_CANDIDATES = 24  # every ordering of four words
+# A limit the database enforces too, so one call cannot test many guesses at once.
 MAX_DOB_READINGS = 2  # a date whose day and month could swap
 
 
 @dataclass(frozen=True)
 class StatedIdentity:
-    names: tuple[str, ...]  # name_candidates of the stated policyholder name
+    name: str | None  # the policyholder name as stated: only the database reads a name (db/004_functions.sql)
     dobs: tuple[date, ...]  # the real-date readings
     phone: str | None  # digits only, ten or more
     email: str | None  # trimmed, lower-cased

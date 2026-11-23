@@ -19,6 +19,14 @@ events_per_turn = 40
 # The most follow-up replies worded ahead in the background after one turn (when prepared replies are on), spread
 # over at most claims_prepared claims in focus.
 replies_prepared = 4
+# An upset or angry caller is offered a person at this many turns that move nothing forward (gave no detail, got no
+# answer), without waiting for stalled_turns.
+upset_turns_before_offer = 2
+# A message that asks several things has at most this many of them answered; the caller is asked to send the rest.
+questions_per_message = 3
+# The longest one filled form may be in a turn's record (each question as the fast model was asked it, with its
+# answer), in characters of its JSON. Longer question texts are cut first.
+form_asked_chars = 40000
 
 [today]
 date = 2026-03-05
@@ -54,6 +62,21 @@ rejected = ["rejected", "reject", "rejects", "rejection"]
 accepted = ["accepted", "accept", "accepts", "acceptance"]
 processing = ["processing", "processed"]
 "under review" = ["under review"]
+
+# Words whose polarity a reply may not flip: a reply may not negate one of them ("not required", "no deadline") unless
+# a fact negates a word of the same group, and may not state one that the facts about a claim only negate ("paid"
+# when the fact says "not paid yet"). Whole-word forms, like the status forms; the words of one group count as one
+# ("no documents are needed" lets a reply say "nothing is required"). Claim statuses from the data and the wary
+# status words above are guarded the same way without being listed here.
+[reply_check.polarity_forms]
+needed = ["need", "needs", "needed", "required", "require", "requires", "requirement", "requirements", "necessary",
+          "requested", "missing", "outstanding", "have to", "has to"]
+deadline = ["deadline", "deadlines", "due"]
+passed = ["passed", "expired", "lapsed"]
+paid = ["paid", "payment", "payments", "reimbursed"]
+covered = ["covered", "coverage", "covers"]
+received = ["received"]
+eligible = ["eligible", "eligibility"]
 
 [prepared_replies]
 enabled = false
@@ -129,3 +152,14 @@ max_key_chars = 512
 conversations_per_minute = 10
 messages_per_minute = 30
 tracked_addresses = 10000
+
+# The server's database connections. A turn holds a connection and its conversation's lock through every model call
+# (about two minutes at worst). A second message for a conversation whose turn is still running waits at most
+# lock_wait_seconds, then is answered "busy"; a request waits at most pool_wait_seconds for a free connection; a
+# transaction left paused longer than idle_in_transaction_seconds (longer than the longest wait between two of a
+# turn's statements, a model call and its retry) is ended by the database, which frees its locks.
+[database]
+pool_size = 20
+pool_wait_seconds = 10
+lock_wait_seconds = 10
+idle_in_transaction_seconds = 150

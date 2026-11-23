@@ -5,14 +5,13 @@ this state) and one question. Caller text goes in the user turn as one JSON data
 the answer field's description hold only code-written text and the question's own choices. The answer is one of the
 offered values or "cannot tell"."""
 
-import json
 from typing import Literal, Protocol
 
 from pydantic import BaseModel, Field, create_model
 
 from claims_agent.form.fields import Pick
 from claims_agent.form.questions import RECENT_WINDOW, FormRequest, Question
-from claims_agent.models.call import BadResponse, with_retry
+from claims_agent.models.call import BadResponse, as_data, with_retry
 
 BY = "larger"
 CANNOT_TELL = "cannot_tell"
@@ -73,7 +72,7 @@ class ModelSettler:
             response = await self._client.responses.parse(
                 model=self._model,
                 input=[{"role": "developer", "content": developer},
-                       {"role": "user", "content": json.dumps(record)}],
+                       {"role": "user", "content": as_data(record)}],
                 text_format=model_cls)
             if getattr(response, "status", "completed") != "completed":
                 raise BadResponse("incomplete")
@@ -86,7 +85,8 @@ class ModelSettler:
                 raise BadResponse("nothing parsed")
             return parsed.answer
 
-        value = await with_retry(call, retries=self._retries, timeout=self._timeout, model=self._model)
+        value = await with_retry(call, retries=self._retries, timeout=self._timeout, model=self._model,
+                            job="settle")
         if value not in values:
             return Pick(value=None, by=BY)
         return Pick(value=value, p=1.0, by=BY)

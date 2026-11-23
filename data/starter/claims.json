@@ -69,5 +69,125 @@
     "allowed_max_amount": "1200.00",
     "net_pay": "0.00",
     "net_fee": "1200.00"
+  },
+  {
+    "case_id": "CL-4101",
+    "party_id": "P14",
+    "case_type": "healthcare",
+    "created_at": "2026-01-20",
+    "status": "denied",
+    "summary": "Healthcare claim denied because the treating provider office note is missing",
+    "denial_reason": "the review file did not include the treating provider office note",
+    "documents_needed": [
+      "treating provider office note"
+    ],
+    "appeal_deadline": "2026-04-10",
+    "expected_reimbursement_amount": "0.00",
+    "allowed_max_amount": "980.00",
+    "net_pay": "0.00",
+    "net_fee": "980.00"
+  },
+  {
+    "case_id": "CL-4102",
+    "party_id": "P14",
+    "case_type": "healthcare",
+    "created_at": "2026-02-02",
+    "status": "denied",
+    "summary": "Healthcare claim denied because the original pathology report is missing",
+    "denial_reason": "the submitted materials did not include the original pathology report",
+    "documents_needed": [
+      "original pathology report"
+    ],
+    "appeal_deadline": "2026-03-06",
+    "expected_reimbursement_amount": "0.00",
+    "allowed_max_amount": "2300.00",
+    "net_pay": "0.00",
+    "net_fee": "2300.00"
+  },
+  {
+    "case_id": "CL-4201",
+    "party_id": "P15",
+    "case_type": "auto",
+    "created_at": "2025-12-15",
+    "status": "denied",
+    "summary": "Auto claim denied because the repair estimate and the accident scene photos are missing",
+    "denial_reason": "the file did not include a repair estimate or photos of the accident scene",
+    "documents_needed": [
+      "repair estimate",
+      "supplemental accident scene photos"
+    ],
+    "appeal_deadline": "2026-02-20",
+    "expected_reimbursement_amount": "0.00",
+    "allowed_max_amount": "4100.00",
+    "net_pay": "0.00",
+    "net_fee": "4100.00"
+  },
+  {
+    "case_id": "CL-4202",
+    "party_id": "P15",
+    "case_type": "dental",
+    "created_at": "2025-06-10",
+    "status": "closed",
+    "summary": "Dental claim completed",
+    "expected_reimbursement_amount": "310.00",
+    "allowed_max_amount": "350.00",
+    "net_pay": "310.00",
+    "net_fee": "350.00"
+  },
+  {
+    "case_id": "CL-4301",
+    "party_id": "P16",
+    "case_type": "healthcare",
+    "created_at": "2026-02-18",
+    "status": "open",
+    "summary": "Healthcare claim in progress; the treating provider office note is still needed",
+    "documents_needed": [
+      "treating provider office note"
+    ],
+    "expected_reimbursement_amount": "640.00",
+    "allowed_max_amount": "700.00",
+    "net_pay": "0.00",
+    "net_fee": "700.00"
+  },
+  {
+    "case_id": "CL-4302",
+    "party_id": "P16",
+    "case_type": "dental",
+    "created_at": "2025-09-14",
+    "status": "closed",
+    "summary": "Dental claim completed",
+    "expected_reimbursement_amount": "520.00",
+    "allowed_max_amount": "540.00",
+    "net_pay": "520.00",
+    "net_fee": "540.00"
+  },
+  {
+    "case_id": "CL-4401",
+    "party_id": "P17",
+    "case_type": "auto",
+    "created_at": "2026-01-30",
+    "status": "denied",
+    "summary": "Auto claim denied because the repair estimate is missing",
+    "denial_reason": "the file did not include a repair estimate",
+    "documents_needed": [
+      "repair estimate"
+    ],
+    "appeal_deadline": "2026-03-05",
+    "expected_reimbursement_amount": "0.00",
+    "allowed_max_amount": "2750.00",
+    "net_pay": "0.00",
+    "net_fee": "2750.00"
+  },
+  {
+    "case_id": "CL-4501",
+    "party_id": "P18",
+    "case_type": "dental",
+    "created_at": "2025-12-01",
+    "status": "closed",
+    "summary": "Dental claim completed",
+    "expected_reimbursement_amount": "180.00",
+    "allowed_max_amount": "200.00",
+    "net_pay": "180.00",
+    "net_fee": "200.00"
   }
 ]

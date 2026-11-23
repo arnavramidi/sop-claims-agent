@@ -1,44 +1,35 @@
 from datetime import date
 
-from claims_agent.identity.normalize import claim_number_key, name_candidates, normalise
+from claims_agent.identity.normalize import claim_number_key, normalise
 from helpers import stated
 
 
-def test_v10_name_orderings():
-    assert "ya wen li" in name_candidates("Li Ya Wen") and "yawen li" in name_candidates("Yawen Li")
-
-
-def test_v7_both_date_readings_are_kept():
+def test_both_date_readings_are_kept():
     s, bad = normalise(stated(date_of_birth=["1985-03-04", "1985-04-03"])); assert len(s.dobs) == 2 and bad == []
 
 
-def test_x1_impossible_date_and_five_id_digits_fail_the_format_check():
+def test_impossible_date_and_five_id_digits_fail_the_format_check():
     s, bad = normalise(stated(date_of_birth=["1985-02-30"], id_digits="12345"))
     assert s.dobs == () and s.id_last4 is None and {f.kind for f in bad} == {"dob", "id"}
 
 
-def test_v11_full_nine_digit_id_keeps_the_last_four():
+def test_full_nine_digit_id_keeps_the_last_four():
     assert normalise(stated(id_digits="123-45-4472"))[0].id_last4 == "4472"
 
 
-def test_v12_partials_do_not_count():
+def test_partials_do_not_count():
     s, bad = normalise(stated(phone="650")); assert s.phone is None and bad[0].kind == "phone"
 
 
-def test_r18_claim_number_key(): assert claim_number_key("cl 2048") == claim_number_key("CL-2048") == "CL2048"
+def test_claim_number_key(): assert claim_number_key("cl 2048") == claim_number_key("CL-2048") == "CL2048"
 
 
-# Extra checks beyond the brief.
+# Extra checks beyond the core cases.
 
 
-def test_names_beyond_four_words_are_as_typed_and_reversed():
-    assert name_candidates("A B C D E") == ("a b c d e", "e d c b a")
-    assert len(name_candidates("Ann Bo Cy Di")) == 24
-    assert name_candidates("  ,  ") == ()
-
-
-def test_name_keeps_letters_only_and_lower_cases():
-    assert name_candidates("O'Neil, José") == ("oneil josé", "josé oneil")
+def test_a_name_is_passed_on_as_stated_for_the_database_to_read():
+    s, bad = normalise(stated(policyholder_name="  O'Neil, José  "))
+    assert s.name == "O'Neil, José" and bad == []
 
 
 def test_a_real_reading_beside_an_impossible_one_is_no_format_failure():
@@ -60,4 +51,4 @@ def test_bad_email_and_lettered_id_fail_the_format_check():
 
 def test_nothing_stated_is_nothing_matched_and_no_failure():
     s, bad = normalise(stated(policyholder_name=" ", phone=""))
-    assert s.names == () and s.phone is None and bad == []
+    assert s.name is None and s.phone is None and bad == []

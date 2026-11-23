@@ -15,32 +15,32 @@ def test_brief_case_verifies():
     assert d.verified_party == "P9" and d.wrong_now == frozenset()
 
 
-def test_v2_three_people_one_kind_each():
+def test_three_people_one_kind_each():
     d = judge(h("name dob id"), [m("A", "name"), m("B", "dob"), m("C", "id")])
     assert (d.candidate, d.verified_party, d.wrong_now) == (None, None, frozenset())
 
 
-def test_v4_policy_plus_two_kinds_is_not_enough():
+def test_policy_plus_two_kinds_is_not_enough():
     assert judge(h("name dob policy"), [m("P9", "name dob", True)]).verified_party is None
     assert judge(h("name dob id policy"), [m("P9", "name dob id", True)]).verified_party == "P9"
 
 
-def test_v5_someone_elses_policy_number_is_the_one_wrong_value():
+def test_someone_elses_policy_number_is_the_one_wrong_value():
     d = judge(h("name dob id policy"), [m("A", "", True), m("B", "name dob id")])
     assert (d.candidate, d.verified_party, d.wrong_now) == ("B", None, frozenset({"policy"}))
 
 
-def test_v21_verified_on_three_even_if_a_fourth_is_wrong():
+def test_verified_on_three_even_if_a_fourth_is_wrong():
     d = judge(h("name dob id phone"), [m("P9", "name dob id"), m("P13", "phone")])
     assert d.verified_party == "P9" and d.wrong_now == frozenset({"phone"})
 
 
-def test_v24_all_five_given_nobody_at_three():
+def test_all_five_given_nobody_at_three():
     d = judge(h("name dob phone email id"), [m("A", "name dob"), m("B", "phone email"), m("C", "id")])
     assert d.verified_party is None and d.all_kinds_no_match
 
 
-def test_v25_the_odd_value_is_wrong_whatever_the_order():
+def test_the_odd_value_is_wrong_whatever_the_order():
     first = judge(h("phone"), [m("C", "phone")])
     assert first.wrong_now == frozenset()
     tie = judge(h("phone name"), [m("C", "phone"), m("M", "name")])

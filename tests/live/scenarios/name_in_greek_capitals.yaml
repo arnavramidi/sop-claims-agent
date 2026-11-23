@@ -1,0 +1,9 @@
+id: name_in_greek_capitals
+about: A caller types their Greek name in capitals without accents; it is read as the name on file (Νικόλαος Παπαδόπουλος) and the caller is verified with two other details.
+group: identity
+dataset: non_latin_names
+turns:
+  - say: "Hello, I am ΝΙΚΟΛΑΟΣ ΠΑΠΑΔΟΠΟΥΛΟΣ, born 1989-12-03, national ID ending 5317."
+    expect:
+      verified: P13
+      wrong_values: 0

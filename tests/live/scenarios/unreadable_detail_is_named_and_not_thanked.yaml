@@ -1,0 +1,24 @@
+id: unreadable_detail_is_named_and_not_thanked
+about: A detail the caller starts and abandons is not kept, is named by its kind, and is never thanked for; a detail cut off half way is asked for again in full with no thanks.
+group: identity
+turns:
+  - say: "Hi, this is Margaret Chen."
+    expect:
+      verified: none
+      held_kinds: [name]
+  # "Never mind" may be read as the caller would rather not give it (a refusal: thanked for saying so, never asked
+  # again), or as a detail that could not be read; either way the reply names the phone and thanks no one for it.
+  - say: "my number is six five oh... uh never mind"
+    expect:
+      verified: none
+      held_kinds: [name]
+      reply_has: ["phone"]
+      reply_lacks: ["thank(s| you)? for (your|the) (phone|number)"]
+      check_passed: true
+  - say: "my date of birth is 03/15/19... sorry, the line cut out"
+    expect:
+      verified: none
+      held_kinds: [name]
+      reply_has: ["date of birth|birth ?date"]
+      reply_lacks: ["thank"]
+      check_passed: true

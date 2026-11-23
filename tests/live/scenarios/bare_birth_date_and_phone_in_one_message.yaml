@@ -1,0 +1,11 @@
+id: bare_birth_date_and_phone_in_one_message
+about: After the name, a date of birth and a phone number given bare in one message are both kept and verify the caller.
+group: identity
+turns:
+  - say: "Hi, I'm Margaret Chen."
+    expect:
+      verified: none
+      held_kinds: [name]
+  - say: "03/15/1985, 650-521-2836"
+    expect:
+      verified: P9

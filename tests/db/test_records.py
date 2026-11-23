@@ -57,7 +57,7 @@ async def waiting_conv(deps):
     return cid
 
 
-async def test_e1_every_escalation_has_a_reason_a_destination_and_the_transcript(deps, denial_case):
+async def test_every_escalation_has_a_reason_a_destination_and_the_transcript(deps, denial_case):
     deps.settler.queue(Pick(value=None, by="larger"))
     await say(deps, denial_case, "what about the timing?", make_form(answer_wanted=Pick(value=None)))
     await say(deps, denial_case, "a person please", make_form(wants_person=True))
@@ -66,7 +66,7 @@ async def test_e1_every_escalation_has_a_reason_a_destination_and_the_transcript
     assert got[-1]["transcript"][-1]["message"] == "a person please"
 
 
-async def test_e2_every_field_below_its_threshold_has_a_record(deps, denial_case):
+async def test_every_field_below_its_threshold_has_a_record(deps, denial_case):
     await say(deps, denial_case, "what about the timing?", make_form(answer_wanted=Pick(
         value="submission_timing", p=0.45, options={"submission_timing": 0.45, "processing_time_after_submission": 0.4})))
     e = (await events(deps, denial_case, "below_threshold"))[0]
@@ -74,7 +74,7 @@ async def test_e2_every_field_below_its_threshold_has_a_record(deps, denial_case
     assert e["options"] == ["processing_time_after_submission", "submission_timing"] and e["transcript"]
 
 
-async def test_e3_extractions_are_recorded_with_the_three_flags(deps, conv):
+async def test_extractions_are_recorded_with_the_three_flags(deps, conv):
     await say(deps, conv, "born 30 Feb 1985", make_form(**GAVE), stated(date_of_birth=["1985-02-30"]))
     await say(deps, conv, "4472", make_form(gave_identity_detail=False), stated(id_digits="4472"))
     await say(deps, conv, "born 16 March 1985", make_form(**GAVE), stated(date_of_birth=["1985-03-16"]))
@@ -83,13 +83,13 @@ async def test_e3_extractions_are_recorded_with_the_three_flags(deps, conv):
     assert flags == [["format_failed"], ["cross_check_failed"], ["corrected_next_turn"], []]
 
 
-async def test_e4_every_reply_has_its_method_facts_text_and_pass_or_fail(deps, denial_case):
+async def test_every_reply_has_its_method_facts_text_and_pass_or_fail(deps, denial_case):
     r = await say(deps, denial_case, "status?", make_form(answer_wanted="status"))
     rec = await turn_record(deps, r.turn_id)
     assert rec["reply_source"] and rec["parts"] and rec["checks"][0]["passed"] in (True, False) and rec["fired"]
 
 
-async def test_e5_a_resolved_need_lists_the_messages_it_came_from(deps, conv):
+async def test_a_resolved_need_lists_the_messages_it_came_from(deps, conv):
     await say(deps, conv, "why was my healthcare claim denied?", make_form(
         need="denial_question", claim_types={"healthcare": 0.9}, claim_statuses={"denied": 0.9}, how_many="one"))
     await say(deps, conv, BRIEF_MSG, make_form(**GAVE, shaped_need=[0.9, 0.2]), BRIEF_SAID)
@@ -98,7 +98,7 @@ async def test_e5_a_resolved_need_lists_the_messages_it_came_from(deps, conv):
     assert e["shaped_by"][0]["turn"] == 1 and len(e["shaped_by"]) == 1
 
 
-async def test_b9_two_mood_changes_are_recorded_with_message_and_reply(deps, denial_case):
+async def test_two_mood_changes_are_recorded_with_message_and_reply(deps, denial_case):
     for mood in ("calm", "upset", "calm"):
         await say(deps, denial_case, f"({mood}) status?", make_form(answer_wanted="status", mood=mood))
     got = await events(deps, denial_case, "mood_change")

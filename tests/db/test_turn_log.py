@@ -87,6 +87,7 @@ def two_turns(client):
         ids.append(client.post(f"/api/conversations/{cid}/messages", json={"text": text}).json()["turn_id"])
     log = client.app.state.deps.turn_log
     with psycopg.connect(client.database_url) as conn:
+        conn.execute("SELECT set_config('app.conversation_id', %s, false)", [cid])  # the row rules: its own turns
         for turn_id, span in conn.execute("SELECT id, braintrust_span_id FROM turns").fetchall():
             log.spans[turn_id] = span
     return cid, ids[0], ids[1]
@@ -94,6 +95,7 @@ def two_turns(client):
 
 def feedback_rows(client, cid):
     with psycopg.connect(client.database_url) as conn:
+        conn.execute("SELECT set_config('app.conversation_id', %s, false)", [cid])
         return [(t, int(r)) for t, r in conn.execute(
             "SELECT f.turn_id, f.rating FROM feedback f JOIN turns t ON t.id = f.turn_id "
             "WHERE t.conversation_id = %s ORDER BY f.turn_id", [cid]).fetchall()]
@@ -118,43 +120,45 @@ def test_with_no_key_one_line_says_tracing_is_off(caplog):
 
 def test_a_thumbs_rating_attaches_to_the_right_turn(logged_client, fake_log):
     cid, first, second = two_turns(logged_client)
-    assert logged_client.post(f"/api/turns/{second}/feedback", json={"rating": -1, "comment": "wrong claim"}).json() == {"ok": True}
+    assert logged_client.post(f"/api/conversations/{cid}/turns/{second}/feedback", json={"rating": -1, "comment": "wrong claim"}).json() == {"ok": True}
     assert fake_log.feedback_calls == [(fake_log.span_of(second), 0, "wrong claim")] and feedback_rows(logged_client, cid) == [(second, -1)]
 
 
 def test_the_latest_rating_wins(logged_client, fake_log):
     cid, first, _ = two_turns(logged_client)
     for rating in (1, -1):
-        logged_client.post(f"/api/turns/{first}/feedback", json={"rating": rating})
+        logged_client.post(f"/api/conversations/{cid}/turns/{first}/feedback", json={"rating": rating})
     assert feedback_rows(logged_client, cid) == [(first, -1)]
     assert [c[1] for c in fake_log.feedback_calls] == [1, 0]
 
 
 def test_a_rating_must_be_up_or_down(logged_client):
-    _, first, _ = two_turns(logged_client)
-    r = logged_client.post(f"/api/turns/{first}/feedback", json={"rating": 5})
+    cid, first, _ = two_turns(logged_client)
+    r = logged_client.post(f"/api/conversations/{cid}/turns/{first}/feedback", json={"rating": 5})
     assert r.status_code == 422 and set(r.json()) == {"error", "message"}
 
 
 def test_a_rating_for_a_turn_that_does_not_exist_is_refused_with_fixed_text(logged_client, fake_log):
-    two_turns(logged_client)
-    r = logged_client.post("/api/turns/99999/feedback", json={"rating": 1, "comment": "secret words"})
+    cid, _, _ = two_turns(logged_client)
+    r = logged_client.post(f"/api/conversations/{cid}/turns/99999/feedback", json={"rating": 1, "comment": "secret words"})
     assert r.status_code == 404 and r.json() == {"error": "turn_not_found", "message": "There is no such turn."}
     assert "secret" not in r.text and fake_log.feedback_calls == []
 
 
 @pytest.mark.parametrize("turn_id", ["abc", "0", "-3", "9223372036854775808"])
 def test_a_turn_id_must_be_a_positive_integer_that_fits(logged_client, turn_id):
-    r = logged_client.post(f"/api/turns/{turn_id}/feedback", json={"rating": 1})
+    r = logged_client.post(f"/api/conversations/00000000-0000-4000-8000-000000000000/turns/{turn_id}/feedback",
+                           json={"rating": 1})
     assert r.status_code == 422 and set(r.json()) == {"error", "message"}
 
 
 def test_a_rating_body_has_a_size_cap_and_no_extra_fields(logged_client):
-    _, first, _ = two_turns(logged_client)
-    assert logged_client.post(f"/api/turns/{first}/feedback", json={"rating": 1, "comment": "x" * 70000}).status_code == 413
-    assert logged_client.post(f"/api/turns/{first}/feedback", json={"rating": 1, "comment": "x" * 1001}).status_code == 422
-    assert logged_client.post(f"/api/turns/{first}/feedback", json={"rating": 1, "extra": 1}).status_code == 422
-    assert logged_client.post(f"/api/turns/{first}/feedback", json={"rating": True}).status_code == 422
+    cid, first, _ = two_turns(logged_client)
+    path = f"/api/conversations/{cid}/turns/{first}/feedback"
+    assert logged_client.post(path, json={"rating": 1, "comment": "x" * 70000}).status_code == 413
+    assert logged_client.post(path, json={"rating": 1, "comment": "x" * 1001}).status_code == 422
+    assert logged_client.post(path, json={"rating": 1, "extra": 1}).status_code == 422
+    assert logged_client.post(path, json={"rating": True}).status_code == 422
 
 
 def test_a_restored_conversation_gives_each_turns_id(logged_client):
@@ -174,7 +178,7 @@ async def test_braintrust_being_down_does_not_fail_the_turn(deps, conv):
 def test_braintrust_being_down_does_not_fail_a_rating(logged_client):
     cid, first, _ = two_turns(logged_client)
     logged_client.app.state.deps.turn_log = FailingLog()
-    assert logged_client.post(f"/api/turns/{first}/feedback", json={"rating": 1}).json() == {"ok": True}
+    assert logged_client.post(f"/api/conversations/{cid}/turns/{first}/feedback", json={"rating": 1}).json() == {"ok": True}
     assert feedback_rows(logged_client, cid) == [(first, 1)]
 
 
@@ -190,7 +194,7 @@ async def test_the_record_sent_is_the_record_stored(deps, conv, fake_log):
 async def test_the_span_id_is_saved_with_the_turn(deps, conv, fake_log):
     deps.turn_log = fake_log
     r = await say(deps, conv, "hello there", make_form())
-    async with deps.db.conversation(None) as c:
+    async with deps.db.conversation(conv) as c:
         row = await (await c.execute("SELECT braintrust_span_id FROM turns WHERE id = %s", [r.turn_id])).fetchone()
     assert row[0] == "span-1" == r.span_id
 
@@ -244,7 +248,10 @@ def test_a_comment_is_masked_before_it_is_sent():
 class _Span:
     def __init__(self, calls, kw): self.calls, self.kw = calls, kw
     def log(self, **kw): self.calls.append(("log", kw))
-    def end(self): self.calls.append(("end",))
+    def end(self, **kw): self.calls.append(("end", kw))
+    def start_span(self, **kw):
+        self.calls.append(("child_span", kw))
+        return _Span(self.calls, kw)
 
 
 class _Logger:
@@ -288,3 +295,29 @@ def test_a_library_that_cannot_start_leaves_logging_off(monkeypatch, caplog):
     fake.init_logger = lambda **kw: (_ for _ in ()).throw(RuntimeError("no network"))
     monkeypatch.setitem(sys.modules, "braintrust", fake)
     assert isinstance(make_turn_log(load_settings(), "a-key"), NoLog)
+
+
+def test_every_model_call_becomes_an_llm_child_span_and_a_failure_in_one_is_contained(monkeypatch):
+    import types
+    calls = []
+    fake = types.ModuleType("braintrust")
+    fake.set_masking_function = lambda f: None
+    fake.init_logger = lambda **kw: _Logger(calls)
+    fake.SpanTypeAttribute = types.SimpleNamespace(LLM="llm")
+    monkeypatch.setitem(sys.modules, "braintrust", fake)
+    log = make_turn_log(load_settings(), "a-key")
+    record = {"usage": {"calls": [
+        {"job": "word", "model": "m-text", "input_tokens": 7, "output_tokens": 2, "total_tokens": 9,
+         "cached_tokens": 0, "reasoning_tokens": 1, "started": 100.0, "ended": 101.5},
+        "not a call"]}}
+    log.finish(log.start(UUID(int=1), 1), message="hi", reply="hello", record=record)
+    children = [c[1] for c in calls if c[0] == "child_span"]
+    assert len(children) == 1 and children[0]["name"] == "word" and children[0]["type"] == "llm"
+    assert children[0]["start_time"] == 100.0
+    child_log = [c[1] for c in calls if c[0] == "log"][-1]
+    assert child_log["metadata"] == {"model": "m-text"}
+    assert child_log["metrics"] == {"prompt_tokens": 7, "completion_tokens": 2, "tokens": 9,
+                                    "completion_reasoning_tokens": 1}
+    assert ("end", {"end_time": 101.5}) in calls
+    turn_log = next(c[1] for c in calls if c[0] == "log")
+    assert "metrics" not in turn_log

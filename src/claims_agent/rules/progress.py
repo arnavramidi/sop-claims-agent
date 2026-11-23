@@ -1,4 +1,4 @@
-"""The progress rule: did this turn move things forward, and when to offer a person (Ruling 20)."""
+"""The progress rule: did this turn move things forward, and when to offer a person."""
 
 from dataclasses import dataclass
 
@@ -24,6 +24,8 @@ def made_progress(before: Memory, after: Memory, state_before: State, state_afte
         reasons.append("hint added or changed")
     if before.focus.claim_ids != after.focus.claim_ids:
         reasons.append("claims in focus changed")
+    if before.focus.last_list != after.focus.last_list:
+        reasons.append("claims listed changed")
     if after.request.need != before.request.need and after.request.need is not None \
             or after.focus.need != before.focus.need and after.focus.need is not None:
         reasons.append("need set or changed")
@@ -64,3 +66,14 @@ def _hint(memory: Memory, name: str):
     if name == "claim_filter" and isinstance(value, dict):
         return {k: v for k, v in value.items() if k != "sureness"}
     return value
+
+
+# A remembered hint (a need or a description said again, kept for later) moves nothing the caller can see: a turn
+# whose only change is a hint asks them the same thing again. The one definition of a turn that moved, for the stall
+# count and for the upset caller's count alike.
+ONLY_REMEMBERED = {"hint added or changed"}
+
+
+def moved(reasons: list[str]) -> bool:
+    """Whether a turn moved: any reason `made_progress` gives other than a remembered hint."""
+    return bool(set(reasons) - ONLY_REMEMBERED)

@@ -3,14 +3,12 @@
 
 # 0.45: fewest wrong reads over 315 labelled cases (0 wrong: 0 labelled no read as yes, 0 labelled yes read as no); a tie goes to the higher value
 yes = 0.45
-# kept 0.35: not fitted from labelled cases (only yes, pick_confident, filter_include_min, send_email_min, prepared_reply_min are)
+# kept 0.35: no labelled reading feeds it
 unsure_low = 0.35
-# kept 0.65: not fitted from labelled cases (only yes, pick_confident, filter_include_min, send_email_min, prepared_reply_min are)
+# kept 0.65: no labelled reading feeds it
 unsure_high = 0.65
 # 0.45: fewest wrong reads over 64 labelled cases (0 wrong: 0 labelled no read as yes, 0 labelled yes read as no); a tie goes to the higher value
 pick_confident = 0.45
-# 0.95: fewest wrong reads over 666 labelled cases (0 wrong: 0 labelled no read as yes, 0 labelled yes read as no); a tie goes to the higher value
-filter_include_min = 0.95
 # kept 0.8: too few labelled cases (2; at least 20 are needed)
 send_email_min = 0.8
 # kept 0.8: too few labelled cases (10; at least 20 are needed)

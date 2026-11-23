@@ -7,7 +7,7 @@ from helpers import BRIEF_MSG, BRIEF_SAID, GAVE, facts, instructions, focus, mak
 from claims_agent.form.fields import Pick
 
 
-async def test_the_brief_message_names_the_claim_without_repeating_its_summary(deps, conv):
+async def test_the_assignment_message_names_the_claim_without_repeating_its_summary(deps, conv):
     form = make_form(**GAVE, need="denial_question", how_many="one", claim_types={"healthcare": 0.97},
                      claim_statuses={"denied": 0.96}, months={1: 0.95}, no_year_said=True)
     r = await say(deps, conv, BRIEF_MSG, form, BRIEF_SAID)

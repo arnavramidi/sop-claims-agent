@@ -13,6 +13,7 @@ from typing import Literal
 
 from psycopg import AsyncConnection
 
+from claims_agent.db.actions import action, found, rows
 from claims_agent.form.fields import Form, ListedClaim
 from claims_agent.form.read import confident_yes, picked, yes
 from claims_agent.identity.normalize import claim_number_key
@@ -23,7 +24,7 @@ from claims_agent.settings import Thresholds
 OVERVIEW_SIZE = 5
 
 RELATIVE = ("most_recent", "oldest", "this_year", "last_year")
-# Ruling 10: when sureness ties, the condition dropped first comes first here.
+# When sureness ties, the condition dropped first comes first here.
 RELAX_ORDER = ("months", "years", "relative", "statuses", "types")
 NEED_CONDITION = {"denial_question": "has_denial_reason", "document_submission": "has_documents"}
 SPLITS = ("case_type", "status", "year", "month")
@@ -102,7 +103,7 @@ def filter_from_form(form: Form, t: Thresholds) -> ClaimFilter:
 
 
 def with_need(f: ClaimFilter, need: str | None) -> ClaimFilter:
-    """The need implies a condition (Ruling 9: "denied" means the claim carries a denial reason)."""
+    """The need implies a condition ("denied" means the claim carries a denial reason)."""
     condition = NEED_CONDITION.get(need or "")
     return replace(f, **{condition: True}) if condition else f
 
@@ -141,7 +142,7 @@ def merge(previous: ClaimFilter | None, new: ClaimFilter, relation: str) -> Clai
 
 
 def relax(f: ClaimFilter) -> ClaimFilter | None:
-    """Drop the described condition the fast model was least sure of (Ruling 10); ties go month, year, relative time,
+    """Drop the described condition the fast model was least sure of; ties go month, year, relative time,
     status, type. A condition with no recorded sureness counts as sure. None when no condition is left."""
     present = f.conditions()
     if not present:
@@ -236,11 +237,13 @@ def _claim(j: Mapping) -> Claim:
         updated_at=datetime.fromisoformat(j["updated_at"]))
 
 
+@action("count claims", lambda n: {"count": n})
 async def count(conn: AsyncConnection, f: ClaimFilter, today: date) -> int:
     row = await (await conn.execute(_CHOSEN + "SELECT count(*) FROM chosen", _params(f, today))).fetchone()
     return row[0]
 
 
+@action("fetch claims", rows)
 async def fetch(conn: AsyncConnection, f: ClaimFilter, today: date, limit: int) -> list[Claim]:
     """The chosen claims, newest first, at most `limit`."""
     cur = await conn.execute(_CHOSEN + f"SELECT {_CLAIM_JSON} FROM chosen {_NEWEST_FIRST} LIMIT %(limit)s",
@@ -248,6 +251,7 @@ async def fetch(conn: AsyncConnection, f: ClaimFilter, today: date, limit: int) 
     return [_claim(j) for (j,) in await cur.fetchall()]
 
 
+@action("fetch named claims", rows)
 async def fetch_ids(conn: AsyncConnection, case_ids: Sequence[str]) -> list[Claim]:
     """The named claims this conversation may see, in the order named; any other id is simply absent."""
     cur = await conn.execute(
@@ -261,6 +265,7 @@ _KEY = "upper(regexp_replace(c.case_id, '[^A-Za-z0-9]', '', 'g'))"  # claim_numb
 _DIGITS = "regexp_replace(c.case_id, '[^0-9]', '', 'g')"
 
 
+@action("find claim by number", rows)
 async def find_numbered(conn: AsyncConnection, stated: str, limit: int) -> list[Claim]:
     """Every claim of this conversation's customer (at most `limit`, newest first) that a claim number as typed could
     name: those whose `claim_number_key` equals it, or, when that names none, those whose digits equal the digits
@@ -280,6 +285,7 @@ async def find_numbered(conn: AsyncConnection, stated: str, limit: int) -> list[
     return []
 
 
+@action("find claim by number", found)
 async def find_by_number(conn: AsyncConnection, stated: str) -> Claim | None:
     """The one claim a typed number names, or None (no claim, or two of the caller's claims share that number)."""
     found = await find_numbered(conn, stated, 2)
@@ -291,6 +297,7 @@ def as_listed(c: Claim) -> ListedClaim:
     return ListedClaim(c.case_id, c.case_type, c.status, c.created_at.isoformat() if c.created_at else None)
 
 
+@action("claims overview", lambda o: {"count": o.count})
 async def overview(conn: AsyncConnection, f: ClaimFilter, today: date) -> Overview:
     """A fixed-size overview in one statement: count, by type, by year, the most recent, the deadlines coming up."""
     cur = await conn.execute(_CHOSEN + f"""SELECT
@@ -312,6 +319,7 @@ async def overview(conn: AsyncConnection, f: ClaimFilter, today: date) -> Overvi
                     tuple(_claim(j) for j in recent), tuple(_claim(j) for j in deadlines))
 
 
+@action("choose a narrowing question")
 async def most_even_split(conn: AsyncConnection, f: ClaimFilter, today: date) -> str:
     """Which of case type, status, year and month splits the chosen claims most evenly: the one whose largest group
     is smallest, among those with two values or more that every chosen claim has (the caller is never asked which
@@ -328,6 +336,7 @@ async def most_even_split(conn: AsyncConnection, f: ClaimFilter, today: date) ->
     return SPLITS[0] if row is None else row[0]
 
 
+@action("read claim types, statuses and years", lambda v: {"types": len(v[0]), "statuses": len(v[1]), "years": len(v[2])})
 async def customer_vocabulary(conn: AsyncConnection) -> tuple[tuple[str, ...], tuple[str, ...], tuple[int, ...]]:
     """The claim types, statuses and years of the claims this conversation may see, each sorted."""
     rows = await (await conn.execute(
@@ -374,6 +383,7 @@ _AGGREGATES = {(name, order): _aggregate_sql(name, direction)
                for name in MONEY_FIELDS for order, direction in (("highest", "DESC"), ("lowest", "ASC"))}
 
 
+@action("total a money figure", lambda a: {"claims": a.count})
 async def aggregate(conn: AsyncConnection, f: ClaimFilter, today: date, field: str, *,
                     order: Literal["highest", "lowest"] = "highest", in_progress: Sequence[str] = (),
                     case_ids: Sequence[str] | None = None) -> Aggregate:
@@ -389,6 +399,7 @@ async def aggregate(conn: AsyncConnection, f: ClaimFilter, today: date, field: s
     return Aggregate(Decimal(total), n, tuple(missing), tuple((c, Decimal(v)) for c, v in top), tuple(unpaid))
 
 
+@action("check named claims against a description", rows)
 async def chosen_among(conn: AsyncConnection, f: ClaimFilter, today: date, case_ids: Sequence[str]) -> set[str]:
     """Which of the named claims the filter chooses (a relative time is over every claim of the caller, as always)."""
     cur = await conn.execute(_CHOSEN + "SELECT case_id FROM chosen WHERE case_id = ANY(%(ids)s::text[])",

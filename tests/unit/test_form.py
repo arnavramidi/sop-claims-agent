@@ -40,7 +40,7 @@ def test_claim_rows_cannot_be_put_in_a_request_before_verification():
         build_questions(req(verified=False, documents=("pathology report",)))
 
 
-def test_d6_a_new_claim_type_becomes_a_question():
+def test_a_new_claim_type_becomes_a_question():
     assert "claim_type:travel" in {q.name for q in build_questions(req(claim_types=("travel",)))}
 
 
@@ -180,7 +180,7 @@ def test_confident_yes_is_at_or_above_the_top_of_the_unsure_band():
     assert not confident_yes(YesNo(p=None), t)
 
 
-# ---- Task 13 fix round 1: a listed claim is offered with what the caller was shown ----------------------------
+# ---- a listed claim is offered with what the caller was shown ----------------------------
 
 from claims_agent.form.fields import ListedClaim  # noqa: E402
 
@@ -233,3 +233,96 @@ def test_each_figure_question_points_at_its_meaning_in_the_data_record():
 def test_a_list_of_claims_is_worded_with_every_detail_that_tells_them_apart():
     from claims_agent.reply.instructions import INSTRUCTIONS
     assert "every detail" in INSTRUCTIONS["which_claim"] and "every detail" in INSTRUCTIONS["nearest_matches"]
+
+
+async def test_the_form_is_told_every_question_is_about_the_message_itself():
+    from claims_agent.form.decisions_filler import DecisionsFiller
+    from claims_agent.form.questions import THIS_MESSAGE
+    from claims_agent.form.structured_filler import DEVELOPER as STRUCTURED
+
+    class Client:
+        class decisions:
+            calls = []
+
+            @staticmethod
+            async def create(**kw):
+                Client.decisions.calls.append(kw)
+                raise RuntimeError("stop")
+
+    with pytest.raises(RuntimeError):
+        await DecisionsFiller(Client, "m", retries=0, timeout=5).fill(req(message="Thanks!"))
+    developer = Client.decisions.calls[0]["input"][0]["content"]
+    for prompt in (developer, STRUCTURED):
+        assert THIS_MESSAGE in prompt
+    assert "earlier message" in THIS_MESSAGE and "money_figures" in THIS_MESSAGE
+
+
+def test_a_type_question_counts_each_alternative_named_and_none_for_all_claims():
+    q = question(build_questions(req(verified=True, state=State.RESOLVE_INTENT)), "claim_type:dental")
+    assert "healthcare or dental" in q.instructions and "all claims" in q.instructions
+
+
+def test_the_detail_question_counts_the_policyholders_details_given_by_a_representative():
+    q = question(build_questions(req()), "gave_identity_detail")
+    assert "policyholder they are calling for count" in q.instructions
+
+
+def test_the_about_question_says_what_off_topic_and_conversation_cover():
+    q = question(build_questions(req(verified=True, state=State.PROCESS_CASE)), "about")
+    assert "off_topic means" in q.instructions and "conversation means" in q.instructions
+
+
+def test_each_caller_role_is_described():
+    q = question(build_questions(req()), "caller_role")
+    described = dict(q.choices)
+    assert set(described) == {"policyholder", "third_party", "not_stated"}
+    assert "policyholder's name as their own" in described["policyholder"]
+    assert "calling for someone else" in described["third_party"]
+
+
+def test_each_calculation_is_described_and_a_ranking_names_the_top_claims():
+    from claims_agent.form.questions import CALCULATIONS
+    q = question(build_questions(req(verified=True, state=State.RESOLVE_INTENT)), "calculation")
+    described = dict(q.choices)
+    assert list(described) == list(CALCULATIONS)
+    assert "most expensive" in described["highest"] and "top" in described["highest"]
+
+
+def test_the_money_figures_tell_which_figure_is_meant_and_their_wording_is_never_the_callers():
+    # Told only that the figures' wording "is not said in caller_message", the figure questions stopped matching the
+    # caller's words to it: "what you actually paid" read 0.07 as the net pay.
+    from claims_agent.form.questions import THIS_MESSAGE
+    assert "which money figure the caller's words describe" in THIS_MESSAGE and "never the caller's" in THIS_MESSAGE
+
+
+def test_a_figure_named_in_a_shortened_form_or_as_one_of_two_compared_counts():
+    # "What you actually paid", one side of "the difference between what you expected and what you paid", read 0.07
+    # as the net pay while every question was told the money figures' wording was not the caller's; "the allowed
+    # amount" read 0.42 as the allowed max amount.
+    q = question(build_questions(req(verified=True, state=State.PROCESS_CASE)), "figure:net_pay")
+    assert "shortened form" in q.instructions and "one of two figures compared" in q.instructions
+
+
+def test_the_document_question_asks_which_one_the_caller_cannot_get():
+    # "I have the office note, but I can't get the pathology report" read the pathology report at 0.51: the question
+    # asked which document the caller meant, and the message names two.
+    q = question(build_questions(req(verified=True, state=State.PROCESS_CASE,
+                                     documents=("pathology report", "office note"))), "which_document")
+    assert "cannot get" in q.instructions and "says they have" in q.instructions
+
+
+def test_an_account_question_is_what_the_account_holds_and_a_change_to_it_is_not_one():
+    # "I want to change the phone number on my account" read as an account question (0.99) and as about this line's
+    # claims or account often enough to drop the offer of a person (unsupported at 0.51).
+    qs = build_questions(req(verified=True, state=State.RESOLVE_INTENT))
+    need = dict(question(qs, "need").choices)
+    assert "policy number" in need["account_question"] and "change" in need["account_question"]
+    about = dict(question(qs, "about").choices)
+    assert "change" in about["claim_or_account"] and "unsupported_insurance" in about["claim_or_account"]
+
+
+def test_a_bare_value_answering_the_agents_question_is_a_whole_detail():
+    # "4472" right after the agent listed the last four digits of an ID read 0.17 as a detail and 1.0 as part of one.
+    qs = build_questions(req())
+    assert "fits one of the details the agent just asked for" in question(qs, "gave_identity_detail").instructions
+    assert "is whole, not part of one" in question(qs, "partial_detail").instructions

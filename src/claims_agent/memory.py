@@ -1,7 +1,7 @@
 """The conversation's memory: sections that only their owning state may write.
 
 `section(name, writer)` is the only way the rules reach a section for writing, so a state cannot touch
-another state's record by accident. `reset_for_new_identity` is Ruling 4: when the caller turns out to be
+another state's record by accident. `reset_for_new_identity` handles this: when the caller turns out to be
 asking about someone else, everything that holds claim data or the caller's own words is wiped.
 """
 
@@ -18,6 +18,7 @@ class HeldValue(BaseModel):
     as_stated: str
     key: str  # the normalised form
     turn: int
+    shape: str | None = None  # a name's shape as the database read it (whole or single); None for other kinds
 
 
 class IdentityMemory(BaseModel):
@@ -30,6 +31,11 @@ class IdentityMemory(BaseModel):
     # A one-word name that was asked for in full: never held, never sent to the database. The same word given again
     # is taken as the caller's whole name (held, compared, counted when wrong). Dropped once a name is held.
     part_of_name: HeldValue | None = None
+    # Kinds of detail the caller said they would rather not give: never asked for again in this conversation.
+    refused: list[str] = []
+    # The caller said they act for someone else and was told they are not listed for that policyholder. A later claim
+    # to be the policyholder then goes to a person; kept across a different-person reset, like wrong_values.
+    refused_as_representative: bool = False
 
 
 class ConsentMemory(BaseModel):
@@ -44,6 +50,9 @@ class HintMemory(BaseModel):
     need: str | None = None
     need_turn: int | None = None  # the turn the hinted need was first read
     wants_email: bool = False
+    # The caller was told the summary will be sent when the conversation ends: the wrap-up sends it without asking.
+    # Cleared, with wants_email, once the email is sent or declined, so only a new request brings it back.
+    email_promised: bool = False
 
 
 class FocusMemory(BaseModel):
@@ -54,6 +63,9 @@ class FocusMemory(BaseModel):
     need: str | None = None  # the need RESOLVE_INTENT settled
     need_note: str | None = None  # why it differs from what was asked
     email_list_filter: dict | None = None  # set when the caller asks for an overview's full list by email
+    # The claims in focus were put there together with nothing describing one of them (the whole policy, or "all of
+    # them" in answer to a list): the reply tells each and asks which to go into, instead of offering a follow-up.
+    told_together: bool = False
 
 
 class RequestMemory(BaseModel):
@@ -71,6 +83,9 @@ class WrapupMemory(BaseModel):
     offers_made: int = 0
     unclear_replies: int = 0
     outcome: str | None = None
+    # What had been answered when the email was last sent or declined: a later wrap-up compares it with what has been
+    # answered since, so a decision once made stands until there is something new to send.
+    answered_when_settled: dict[str, list[str]] = {}
 
 
 class Counters(BaseModel):
@@ -100,10 +115,11 @@ _OWNERS: dict[str, State | None] = {
 }
 
 
-# Identity fields a reset keeps (amends Ruling 4): the wrong values already counted are the caller's own
-# failed guesses, not anyone's data, and the three-wrong-values limit is per conversation. Without this a
-# caller could reset ("what about my husband's policy?") and start the count again, indefinitely.
-KEPT_ACROSS_RESET: tuple[str, ...] = ("wrong_values",)
+# Identity fields a reset keeps (an exception to the wipe): the wrong values already counted are the caller's own
+# failed guesses, not anyone's data, and the three-wrong-values limit is per conversation. The count itself is the
+# database's (db/012_identity_lockout.sql), which a reset never touches; memory keeps a copy to show, read back from
+# the database each time details are compared, so the copy does not drop to zero at a reset either.
+KEPT_ACROSS_RESET: tuple[str, ...] = ("wrong_values", "refused_as_representative")
 
 
 class Memory(BaseModel):

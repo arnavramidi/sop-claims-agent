@@ -20,6 +20,10 @@ class ReplyPart:
     plain: str = ""
     pending: Pending | None = None
     prepared: str = ""  # a reply to this part worded ahead and checked (see claims_agent.prepared)
+    # What the reply must say, checked by code (reply.check.required_mentions): each entry is a set of alternative
+    # wordings, one of which must appear; and words it must not use (a thank-you for a detail that was not kept).
+    must_mention: tuple[tuple[str, ...], ...] = ()
+    must_not_mention: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True)

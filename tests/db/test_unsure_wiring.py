@@ -45,7 +45,7 @@ async def margaret_one_closed_claim_in_focus(deps, margaret):
     return margaret
 
 
-# ---- the brief's tests -------------------------------------------------------------------------------------------
+# ---- core behaviour -------------------------------------------------------------------------------------------
 
 async def test_an_unsure_need_in_resolve_intent_uses_the_loop(deps, margaret_one_closed_claim_in_focus):
     deps.filler.queue_one(Pick(value=None)); deps.settler.queue(Pick(value="status_inquiry", p=1.0, by="larger"))     # CL-2011 rules out two needs, so the narrowed re-ask runs first
@@ -64,7 +64,7 @@ async def test_the_rewrite_budget_is_one_per_turn(deps, denial_case):
     assert len(deps.wording.rewrites) - rewrites == 1 and r.inspector["reply_source"] == "template"
 
 
-# ---- beyond the brief --------------------------------------------------------------------------------------------
+# ---- further cases --------------------------------------------------------------------------------------------
 
 async def test_the_narrowed_question_leaves_out_the_needs_the_claim_rules_out(deps, margaret_one_closed_claim_in_focus):
     deps.filler.queue_one(Pick(value="status_inquiry", p=0.9))

@@ -4,5 +4,11 @@
     "relationship": "son",
     "buyer_name": "Margaret Chen",
     "buyer_party_id": "P9"
+  },
+  {
+    "rep_name": "Rohan Nair",
+    "relationship": "spouse",
+    "buyer_name": "Priya Nair",
+    "buyer_party_id": "P15"
   }
 ]

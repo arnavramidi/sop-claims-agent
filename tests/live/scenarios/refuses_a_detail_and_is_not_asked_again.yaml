@@ -1,0 +1,24 @@
+id: refuses_a_detail_and_is_not_asked_again
+about: A caller would rather not give their phone number; the agent thanks them, does not ask for it again, says which other details would do and that nothing about a claim can be shared without three, and the caller verifies with others.
+group: identity
+turns:
+  - say: "Hi, this is Margaret Chen."
+    expect:
+      verified: none
+      held_kinds: [name]
+  - say: "I'd rather not give my phone number, if that's okay."
+    expect:
+      state: VERIFY_ID
+      handed_over: false
+      instructions: [acknowledge_refusal]
+      memory: {"identity.refused": ["phone"]}
+      reply_lacks: ["phone number\\?"]
+      judge: "The agent's last reply thanks the caller, says it will not ask for the phone number again, names other details the caller could give instead, and says plainly that nothing about a claim can be shared without enough matching details. It does not ask for the phone number."
+  - say: "Okay. I was born on 1985-03-15."
+    expect:
+      verified: none
+      instructions_lack: [acknowledge_refusal]
+      judge: "The agent's last reply asks for one more detail and does not ask for the caller's phone number."
+  - say: "My SSN ends in 4472."
+    expect:
+      verified: P9

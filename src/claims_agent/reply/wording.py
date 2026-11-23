@@ -1,10 +1,9 @@
 """The wording model's interface, a scripted stand-in for tests, and the real client."""
 
-import json
 from collections.abc import Sequence
 from typing import Protocol
 
-from claims_agent.models.call import BadResponse, with_retry
+from claims_agent.models.call import BadResponse, as_data, with_retry
 from claims_agent.reply.brief import ReplyBrief
 from claims_agent.reply.instructions import INSTRUCTIONS, MISSING
 from claims_agent.settings import load_settings
@@ -51,7 +50,8 @@ Write in English. Only a part whose instruction says so is written in the caller
 Use only the facts given. Add no number, date, address, link, claim number or status of your own.
 Reuse the facts' own figures and dates exactly as written there. Never write a number as a word, and add no day count,
 weekday, relative date ("tomorrow", "next week") or total of your own.
-Say "the ID on file" and never name a type of ID. Never say "approved". Do not read out any personal detail.
+Name an ID only in the words the facts use for it, and never say which type of ID the caller has. Never say "approved".
+Do not read out any personal detail.
 Never state or guess an email address. Where a summary will be sent is referred to only by the exact phrase a fact gives for it.
 The data record's caller_mood says how the caller sounds. When it is uneasy, upset or angry, start the reply with ONE
 short, sincere sentence in your own words that acknowledges how the caller feels (for example, that this is frustrating
@@ -60,6 +60,8 @@ through this, step by step. That sentence is about the caller's feelings only: i
 apologise for or defend any decision, says nothing about any claim or its status, and adds no fact. Do not repeat the
 caller's harsh words, and do not reuse the acknowledging words of previous_reply. When caller_mood is calm, add no
 such sentence.
+previous_reply, when given, is what you said last. Never open with the same sentence as previous_reply, and do not
+repeat any of its sentences word for word: say again only what the parts need, in fewer or other words.
 You do not have, and must not invent or promise: {missing}. If asked for these, say you do not have them.
 The reply must do these parts, in order, using only the facts the data record lists for each part number:
 {parts}
@@ -113,13 +115,14 @@ class ModelWording:
                 model=model, max_output_tokens=self._cap, reasoning={"effort": self._effort},
                 text={"verbosity": self._verbosity},
                 input=[{"role": "developer", "content": developer},
-                       {"role": "user", "content": json.dumps(data)}])
+                       {"role": "user", "content": as_data(data)}])
             text = (response.output_text or "").strip()
             if getattr(response, "status", "completed") != "completed" or not text:
                 raise BadResponse("incomplete reply")  # a cut-off or empty reply is a failed call, never a reply
             return text
 
-        return await with_retry(call, retries=self._retries, timeout=self._timeout, model=model)
+        return await with_retry(call, retries=self._retries, timeout=self._timeout, model=model,
+                                 job="rewrite" if failed is not None else "word")
 
     async def word(self, brief: ReplyBrief) -> str:
         return await self._ask(self._text, brief)

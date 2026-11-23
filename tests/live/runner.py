@@ -396,7 +396,7 @@ def check_turn(expect: dict, seen: _Seen) -> list[str]:
 # ---- one scenario ----------------------------------------------------------------------------------------------------
 
 async def _verified(deps: Deps, conversation_id) -> str | None:
-    async with deps.db.conversation(None) as c:
+    async with deps.db.conversation(conversation_id) as c:  # the row rules show only the bound conversation
         row = await (await c.execute("SELECT verified_party_id FROM conversations WHERE id = %s",
                                      [conversation_id])).fetchone()
     return None if row is None else row[0]

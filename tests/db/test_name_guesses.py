@@ -19,9 +19,9 @@ def sent(monkeypatch):
     seen = []
     real = verify_id.match_identity
 
-    async def recording(conn, s):
+    async def recording(conn, conversation_id, s):
         seen.append(s)
-        return await real(conn, s)
+        return await real(conn, conversation_id, s)
     monkeypatch.setattr(verify_id, "match_identity", recording)
     return seen
 
@@ -30,9 +30,9 @@ def sent(monkeypatch):
 async def test_a_full_name_typed_as_one_token_does_not_verify_and_is_counted_once_compared(deps, conv, sent, token):
     r = await say(deps, conv, f"{token}, 1985-03-15, 4472", make_form(**GAVE), stated(policyholder_name=token, **RIGHT_TWO))
     assert await verified_party(deps, conv) is None and "ask_full_value" in instructions(r)
-    assert sent[-1].names == ()  # asked for in full, never compared
+    assert sent[-1].name is None  # asked for in full, never compared
     r = await say(deps, conv, f"{token} is my full name", make_form(**GAVE), stated(policyholder_name=token))
-    assert await verified_party(deps, conv) is None and sent[-1].names != ()
+    assert await verified_party(deps, conv) is None and sent[-1].name == token
     assert len(await memory(deps, conv, "identity.wrong_values")) == 1  # compared, so counted
 
 
@@ -59,7 +59,7 @@ async def test_three_wrong_one_token_names_hand_over_like_any_other_wrong_values
 
 async def test_a_first_name_alone_is_asked_for_in_full_and_never_compared(deps, conv, sent):
     r = await say(deps, conv, "My first name is Margaret", make_form(**GAVE), stated(policyholder_name="Margaret"))
-    assert "ask_full_value" in instructions(r) and all(s.names == () for s in sent)
+    assert "ask_full_value" in instructions(r) and all(s.name is None for s in sent)
     assert await memory(deps, conv, "identity.wrong_values") == []
 
 
@@ -97,7 +97,7 @@ PARTS = {"name": dict(policyholder_name="Margaret"), "dob": dict(date_of_birth_a
          "phone": dict(phone="650"), "email": dict(email="margaret at email"), "id": dict(id_digits="44")}
 WRONG = {"name": dict(policyholder_name="Mary Smith"), "dob": dict(date_of_birth=["1970-01-01"]),
          "phone": dict(phone="+1 212 555 0100"), "email": dict(email="nobody@example.com"), "id": dict(id_digits="0000")}
-FIELD = {"name": "names", "dob": "dobs", "phone": "phone", "email": "email", "id": "id_last4"}
+FIELD = {"name": "name", "dob": "dobs", "phone": "phone", "email": "email", "id": "id_last4"}
 
 
 @pytest.mark.parametrize("kind", sorted(PARTS))

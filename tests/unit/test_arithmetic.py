@@ -34,18 +34,18 @@ def text(r):
     return " ".join(f.text for f in r.facts)
 
 
-def test_a3_a_difference_gives_both_figures_and_no_reason():
+def test_a_difference_gives_both_figures_and_no_reason():
     r = calculation_facts("difference", ["allowed_max_amount", "net_pay"], [CL2011], None, G, S, TODAY)
     t = text(r)
     assert "800.00" in t and "780.00" in t and "20.00" in t and "because" not in t
     assert any(f.kind == "not_on_file" and "reason" in f.text for f in r.facts)
 
 
-def test_a7_days_open_are_counted_against_today():
+def test_days_open_are_counted_against_today():
     assert "5 days" in text(calculation_facts("days_open", [], [CL2102], None, G, S, TODAY))
 
 
-def test_a5_with_no_figure_named_it_asks_which_of_the_four():
+def test_with_no_figure_named_it_asks_which_of_the_four():
     r = calculation_facts("highest", [], [CL2048, CL2011], None, G, S, TODAY)
     assert r.grounded is False and all(name.replace("_", " ") in text(r) for name in G.glossary)
 

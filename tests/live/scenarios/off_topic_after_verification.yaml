@@ -1,0 +1,24 @@
+id: off_topic_after_verification
+about: After verification, an off-topic question is declined without a false "not on file" and without a person on the first one; a person is offered only when it keeps happening.
+group: blocked
+turns:
+  - say: "I'm the policyholder. My name is Margaret Chen, policy POL-9921. I'm calling about my denied healthcare claim from January. DOB is 1985-03-15, SSN last four is 4472."
+    expect:
+      verified: P9
+      focus: [CL-2048]
+  - say: "What is RL?"
+    expect:
+      state: PROCESS_CASE
+      instructions: [decline_off_topic]
+      instructions_lack: [not_on_file, offer_person]
+      reply_lacks: ["not on file"]
+      handed_over: false
+  - say: "OK, what's the capital of France then?"
+    expect:
+      instructions: [decline_off_topic]
+      instructions_lack: [not_on_file, offer_person]
+      handed_over: false
+  - say: "Fine. Tell me a joke."
+    expect:
+      instructions: [offer_person]
+      handed_over: false

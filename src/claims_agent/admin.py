@@ -1,12 +1,15 @@
 """The demo control that changes a claim: a status, an appeal deadline or the documents still needed.
 
-It exists only when ADMIN_DATABASE_URL is set (the loader's account, which the server otherwise never holds).
-The server's own account cannot write claims and is not given that power: a change is written over a separate
-connection opened for that one change. Values are checked by the same rules the data loader applies.
+It exists only when ADMIN_DATABASE_URL is set: the address of the demo account (claims_demo), which may change only
+a claim's status and appeal deadline and the claim's documents, and only for the customer the conversation it is used
+from is verified as (its row rules read that conversation, as the server's do). The server's own account cannot write
+claims and is not given that power: a change is written over a separate connection opened for that one change, bound
+to the conversation. Values are checked by the same rules the data loader applies.
 """
 
 from datetime import date, datetime
 from typing import Any
+from uuid import UUID
 
 import psycopg
 
@@ -40,11 +43,12 @@ def checked_documents(value: Any) -> list[str]:
     return names
 
 
-async def change_claim(url: str, case_id: str, party_id: str, *, status: str | None = None,
+async def change_claim(url: str, conversation_id: UUID, case_id: str, party_id: str, *, status: str | None = None,
                        appeal_deadline: date | None = None, documents_needed: list[str] | None = None) -> datetime:
-    """Write the given columns of one claim as the loader's account, in one transaction; return its new updated_at.
-    Documents are replaced as a whole and numbered 1, 2, ... like the loader numbers them."""
+    """Write the given columns of one claim as the demo account, in one transaction bound to the conversation; return
+    its new updated_at. Documents are replaced as a whole and numbered 1, 2, ... like the loader numbers them."""
     async with await psycopg.AsyncConnection.connect(url) as conn:
+        await conn.execute("SELECT set_config('app.conversation_id', %s, true)", [str(conversation_id)])
         sets, args = ["updated_at = now()"], []
         if status is not None:
             sets.append("status = %s")

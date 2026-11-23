@@ -14,21 +14,27 @@ alternatives were offered per claim, and the follow-ups declined per claim. The 
 this step only reads them.
 """
 
+import logging
 import re
 from collections.abc import Sequence
+from dataclasses import replace
 from datetime import date
 
 from claims_agent import prepared
 from claims_agent.answers.documents import norm
-from claims_agent.answers.facts import COMPARE_CLAIMS, AnswerResult, available, build, opening
+from claims_agent.answers.facts import ANSWER_MEANS, COMPARE_CLAIMS, AnswerResult, available, build, opening
 from claims_agent.answers.followups import exists_for, fill, followup_candidates, next_followup
 from claims_agent.db.claims import (Claim, ClaimFilter, chosen_among, count, fetch_ids, filter_from_form,
                                     find_numbered, with_need)
 from claims_agent.db.guidance import Guidance
-from claims_agent.engine import ANSWER_KINDS, STEPS, StepOutcome, TurnContext, guidance, offered_documents
+from claims_agent.engine import (ANSWER_KINDS, STEPS, StepOutcome, TurnContext, _claim_facts_allowed, answer_names,
+                                 guidance, offered_documents)
+from claims_agent.form.fields import Pick
+from claims_agent.form.questions import build_questions
 from claims_agent.form.read import confident_yes, picked, yes
-from claims_agent.loader.read import FollowupRow
+from claims_agent.loader.read import MONEY_FIELDS, FollowupRow
 from claims_agent.memory import Pending, RequestMemory
+from claims_agent.models.errors import ModelRequestRejected, ModelUnavailable
 from claims_agent.reply.brief import Fact, ReplyPart
 from claims_agent.rules import calculate, unsure
 from claims_agent.rules.every_message import PERSON_OFFER
@@ -36,6 +42,8 @@ from claims_agent.rules.resolve_intent import (GENERAL as GENERAL_NEED, destinat
                                              wants_more_than_focus)
 from claims_agent.settings import Settings
 from claims_agent.states import State
+
+logger = logging.getLogger("claims_agent.rules.process_case")
 
 # A yes/no offer of one follow-up for one claim: "offer_followup:<case_id>:<topic>". The label holds no claim value.
 OFFER_PREFIX = "offer_followup:"
@@ -45,6 +53,11 @@ WHICH_DOCUMENT = Pending(kind="which_document", label="which document can't you 
 ANYTHING_ELSE = Pending(kind="anything_else", label="anything else?", yes_no=False)
 # The email offer made when the caller came back from it (POST_PROCESS makes the same offer on entry).
 EMAIL_OFFER = Pending(kind="offer_email", label="send the summary?", yes_no=True)
+# After several claims are told about together with no particular need: which to go into, or what to know.
+WHICH_OF_THESE = Pending(kind="which_of_these", label="which of these claims, or what would you like to know?",
+                         yes_no=False)
+ASK_WHICH_OF_THESE = ReplyPart("ask_which_of_these", plain="Which of these would you like to go into, or what would "
+                               "you like to know about them?", pending=WHICH_OF_THESE)
 
 NOT_AN_ANSWER = ("none", "something_else", "not_on_file")
 NOT_ON_FILE = "not_on_file"
@@ -68,8 +81,14 @@ def _words(name: str) -> str:
     return name.replace("_", " ")
 
 
+def named_figures(form, t) -> tuple[str, ...]:
+    """The money figures the form is sure the caller named. A question about one figure is answered with that figure
+    and its meaning; none named means all of them."""
+    return tuple(m for m in MONEY_FIELDS if (f := form.figures.get(m)) is not None and confident_yes(f, t))
+
+
 def _results(answer: str, claims: Sequence[Claim], g: Guidance, s: Settings, today: date,
-             document: str | None) -> list[tuple[Claim, AnswerResult]]:
+             document: str | None, figures: Sequence[str] = ()) -> list[tuple[Claim, AnswerResult]]:
     """One result per claim: a claim-record answer is built from the row; a follow-up is filled only where it
     exists for that claim (the offer check), anything else is not on file for it."""
     followup = next((f for f in g.followups if f.topic == answer), None)
@@ -79,7 +98,7 @@ def _results(answer: str, claims: Sequence[Claim], g: Guidance, s: Settings, tod
     out = []
     for c in claims:
         if answer in ANSWER_KINDS:
-            out.append((c, build(answer, [c], g, s, today)))
+            out.append((c, build(answer, [c], g, s, today, figures=figures)))
         elif followup is not None and exists_for(followup, c, g, s):
             out.append((c, fill(followup, c, g, s, today, document=document)))
         else:
@@ -109,7 +128,8 @@ async def answer_parts(ctx: TurnContext, answer: str, claims: Sequence[Claim], *
     """The parts that give one answer (a claim-record answer or a follow-up topic) for the claims given, and whether
     the reply is grounded in the data. Writes no memory, so any state may use it."""
     g = await guidance(ctx.deps, ctx.conn)
-    results = _results(answer, claims, g, ctx.deps.settings, ctx.today, document)
+    results = _results(answer, claims, g, ctx.deps.settings, ctx.today, document,
+                       named_figures(ctx.form, ctx.deps.thresholds))
     return _parts([r for _, r in results])
 
 
@@ -118,7 +138,7 @@ def _answered_for(result: AnswerResult) -> bool:
 
 
 def _alternatives_topic(s: Settings) -> str | None:
-    """The follow-up settings mark as giving per-document alternatives (Ruling 8: attached by topic name)."""
+    """The follow-up settings mark as giving per-document alternatives (attached by topic name)."""
     return next((t for t, sp in s.followups.special.items() if sp.per_document_alternatives), None)
 
 
@@ -138,6 +158,7 @@ class _Case:
         self.ctx, self.claims, self.g = ctx, claims, g
         self.s, self.t, self.today = ctx.deps.settings, ctx.deps.thresholds, ctx.today
         self.form = ctx.form
+        self.figures = named_figures(ctx.form, self.t)
         self.request: RequestMemory = ctx.memory.section("request", State.PROCESS_CASE)
         self.topics = {f.topic: f for f in g.followups}
         self.fired: list[dict] = [{"rule": "process_case", "claims": [c.case_id for c in claims]}]
@@ -175,7 +196,7 @@ class _Case:
     def results(self, answer: str, claims: Sequence[Claim], document: str | None = None) -> list[AnswerResult]:
         """One answer for the claims given; each claim it was actually answered for is marked answered."""
         out = []
-        for c, r in _results(answer, claims, self.g, self.s, self.today, document):
+        for c, r in _results(answer, claims, self.g, self.s, self.today, document, self.figures):
             if _answered_for(r):
                 self.mark(c, answer)
             out.append(r)
@@ -211,7 +232,8 @@ class _Case:
                                  yes_no=True))
         return ReplyPart("anything_else", pending=ANYTHING_ELSE)
 
-    def finish(self, parts: list[ReplyPart], grounded: bool, *, offer: bool = True) -> StepOutcome:
+    def finish(self, parts: list[ReplyPart], grounded: bool, *, offer: bool = True,
+               closing: ReplyPart | None = None) -> StepOutcome:
         """After an answer: an offer of a person is the reply's one question. Otherwise, a caller who came back from
         the email offer is offered it again and moves to wrap-up; else the next follow-up (or anything else)."""
         if any(p.pending is not None and p.pending.kind == PERSON_OFFER.kind for p in parts):
@@ -222,7 +244,7 @@ class _Case:
                                    f"{where.text}?", pending=EMAIL_OFFER))
             self.fired.append({"rule": "offer_email_again"})
             return StepOutcome(State.POST_PROCESS, parts, grounded=grounded, fired=self.fired)
-        parts.append(self.offer_next() if offer else ReplyPart("anything_else", pending=ANYTHING_ELSE))
+        parts.append(closing or (self.offer_next() if offer else ReplyPart("anything_else", pending=ANYTHING_ELSE)))
         return self.stay(parts, grounded)
 
     # ---- a total, a difference, a ranking, a count or a day count ---------------------------------------------------
@@ -286,28 +308,69 @@ class _Case:
 
     # ---- entry -------------------------------------------------------------------------------------------------
 
-    def entry(self) -> StepOutcome:
+    async def answer_for_these_claims(self) -> Pick:
+        """The answer the message asks for, read over the answers these claims have. A message that turned to these
+        claims in this turn ("back to the denied one: when is the appeal deadline?") was read with the answers of the
+        claims in focus before it, which may not offer the one asked for; then the fast model is asked that one
+        question again over these claims' answers. (The comparison across claims is left out of that check: it is
+        never the reason to read again.) The first reading stands unless the second is confident, and when the call
+        fails."""
+        req, first = self.ctx.request, self.form.answer_wanted
+        # The answers and documents of these claims go to the model only where claim facts may (as for the form).
+        if req is None or not _claim_facts_allowed(self.s, self.ctx.conversation.state):
+            return first
+        names = answer_names(self.claims, self.g, self.s)
+        offered = {a for a, _ in req.answers}
+        if all(a in offered for a in names if a != COMPARE_CLAIMS):
+            return first
+        again = replace(req, answers=tuple((a, ANSWER_MEANS.get(a, _words(a))) for a in names),
+                        documents=offered_documents(self.claims, self.s), listed_claims=())
+        question = next(q for q in build_questions(again) if q.name == "answer_wanted")
+        try:
+            read = await self.ctx.deps.filler.fill_one(again, question)
+        except ModelRequestRejected:  # before ModelUnavailable: it is one, but it is our own malformed request
+            logger.error("the fast model refused our request to read the answer again as malformed; the first reading "
+                         "stands", exc_info=True)
+            return first
+        except ModelUnavailable:
+            logger.warning("the fast model was unavailable to read the answer again; the first reading stands")
+            return first
+        self.fired.append({"rule": "answer_read_again", "answer": read.value, "p": read.p})
+        return read if picked(read, self.t) is not None else first
+
+    async def entry(self) -> StepOutcome:
         """The need RESOLVE_INTENT settled, its note (for each claim whose fresh row holds it), then each claim's
         opening; or, when this turn's message confidently asked for one specific answer (a question about the claim
-        just put in focus) that the opening neither gives nor explains, that answer in place of the opening."""
+        just put in focus) that the opening neither gives nor explains, that answer in place of the opening. A claim
+        the caller already heard about is not told its opening again: a specific question gets just its answer, and
+        otherwise only the opening's answers not yet given for it are given (none left: on to the next offer)."""
         focus = self.ctx.memory.focus
         self.request.need = focus.need or GENERAL_NEED
         note = focus.need_note if focus.need_note in NOTE_TEXT else None
         lead = [Fact(note, NOTE_TEXT[note].format(id=c.case_id), c.case_id)
                 for c in self.claims if note is not None and NOTE_HOLDS[note](c)]
-        answer = picked(self.form.answer_wanted, self.t)
+        form = self.form.model_copy(update={"answer_wanted": await self.answer_for_these_claims()})
+        answer = picked(form.answer_wanted, self.t)
+        returning = discussed(self.claims, self.request)
         if answer is not None and answer not in NOT_AN_ANSWER:
-            if not gives_opening(self.form, self.t, self.need, note, self.claims, self.s):
-                self.fired.append({"rule": "entered_with_a_question", "need": self.need, "answer": answer})
+            if returning or not gives_opening(form, self.t, self.need, note, self.claims, self.s):
+                self.fired.append({"rule": "entered_with_a_question", "need": self.need, "answer": answer,
+                                   "returning": returning})
                 return self.give_answer(answer, lead)
             self.fired.append({"rule": "question_in_opening", "need": self.need, "answer": answer})
         results = []
         for c in self.claims:
+            given = self.request.answered.get(c.case_id, [])
             for a in opening(self.need, c, self.s):
+                if a in given:
+                    continue
                 results.append(build(a, [c], self.g, self.s, self.today))
                 self.mark(c, a)
-        self.fired.append({"rule": "opening", "need": self.need, "note": note})
-        return self.finish(*_parts(results, lead))
+        self.fired.append({"rule": "opening", "need": self.need, "note": note, "returning": returning})
+        # Several claims told about together, with nothing describing one of them and no particular need: one
+        # question, which to go into or what to know, in place of a follow-up offered for one of them.
+        several = len(self.claims) > 1 and self.need == GENERAL_NEED and focus.told_together
+        return self.finish(*_parts(results, lead), closing=ASK_WHICH_OF_THESE if several else None)
 
     # ---- a yes or a no to the follow-up offered last -----------------------------------------------------------
 
@@ -336,7 +399,8 @@ class _Case:
             if f.topic not in declined:
                 declined.append(f.topic)
             self.fired.append({"rule": "followup_declined", "claim": claim.case_id, "topic": f.topic})
-            return self.cant_get() or await self.asked()  # the rest of the message, if it asks anything
+            # the rest of the message, if it asks anything
+            return await self.another_claim() or self.cant_get() or await self.asked()
         if self.wants_document_help() and self.document_set():
             return self.cant_get()  # "yes, and I can't get the office note": that document's own alternatives
         if not exists_for(f, claim, self.g, self.s):
@@ -398,7 +462,7 @@ class _Case:
 
     def cant_get(self) -> StepOutcome | None:
         """Alternatives for each document in the set, each recorded; a confident "can't get it" when every document
-        in the set already had its alternatives hands over (P14)."""
+        in the set already had its alternatives hands over."""
         if not self.wants_document_help():
             return None
         pairs = self.document_set()
@@ -427,13 +491,25 @@ class _Case:
 
     # ---- what the caller asked for -------------------------------------------------------------------------------
 
-    async def asked(self) -> StepOutcome:
+    async def another_claim(self) -> StepOutcome | None:
+        """A message about a different claim goes back to the claim-choosing state, before anything else it seems to
+        ask is acted on for the claims in focus (it keeps the focus when the message describes no other claim): "what
+        about my auto claim?" is about the auto claim, whatever else the form reads into it."""
         form, t = self.form, self.t
-        # A different claim goes back to the claim-choosing state whatever the answer pick (it keeps the focus when
-        # the message describes no other claim).
         mentions = yes(form.mentions_claim, t) or yes(form.quoted_claim_number, t)
         if mentions and picked(form.search_relation, t) in SWITCHING or await self.points_elsewhere():
             return self.hop_back({"rule": "another_claim"})
+        # One of several claims in focus picked out ("the first one", after "which would you like to go into?"):
+        # choosing it is RESOLVE_INTENT's, which owns the focus.
+        listed = picked(form.listed_claim, t)
+        if len(self.claims) > 1 and listed in {c.case_id for c in self.claims}:
+            return self.hop_back({"rule": "one_of_those_in_focus"})
+        return None
+
+    async def asked(self) -> StepOutcome:
+        """What the message asks about the claims in focus. Its callers have already sent a message about another
+        claim back to choosing it (`another_claim`)."""
+        form, t = self.form, self.t
         answer = picked(form.answer_wanted, t)
         if answer in (None, "something_else", "none") and self.asks_about_a_figure():
             answer = "amounts"
@@ -478,9 +554,10 @@ async def step(ctx: TurnContext) -> StepOutcome:
     case = _Case(ctx, claims, await guidance(ctx.deps, ctx.conn))
 
     if ctx.entered_by_hop:
-        out = await case.calculate() or case.entry()
+        out = await case.calculate() or await case.entry()
     else:
-        out = await case.offer_answered() or case.cant_get() or await case.calculate() or await case.asked()
+        out = await case.offer_answered() or await case.another_claim() or case.cant_get() or await case.calculate() \
+            or await case.asked()
     return await prepared.serve(ctx, case.slot, out)  # a follow-up worded ahead, when it may be used
 
 
@@ -500,11 +577,20 @@ def opening_covers(answer: str, need: str, note: str | None, claims: Sequence[Cl
     return any(answer in opening(need, c, s) for c in claims)
 
 
-def gives_opening(form, t, need: str, note: str | None, claims: Sequence[Claim], s: Settings) -> bool:
+def discussed(claims: Sequence[Claim], request: RequestMemory) -> bool:
+    """Every claim given has already had answers given for it in this conversation."""
+    return bool(claims) and all(request.answered.get(c.case_id) for c in claims)
+
+
+def gives_opening(form, t, need: str, note: str | None, claims: Sequence[Claim], s: Settings,
+                  request: RequestMemory | None = None) -> bool:
     """Whether entering with this need gives the claims' opening (their status, and the reason or documents the need
-    brings), rather than the one specific answer the message asked for in its place."""
+    brings), rather than the one specific answer the message asked for in its place (always the answer for claims the
+    caller already heard about, when `request` is given)."""
     answer = picked(form.answer_wanted, t)
     if answer is None or answer in NOT_AN_ANSWER:
         return True
+    if request is not None and discussed(claims, request):
+        return False
     holds = note in NOTE_TEXT and any(NOTE_HOLDS[note](c) for c in claims)
     return opening_covers(answer, need, note if holds else None, claims, s)

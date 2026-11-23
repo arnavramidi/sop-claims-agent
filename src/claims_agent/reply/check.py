@@ -34,10 +34,32 @@ Strict readings chosen:
 - "today" is filler and allowed (a deadline that is today shows as zero days left in the facts); "tonight",
   "tomorrow", "yesterday", weekdays, "next/this/last" plus a unit, "end of month" and "mid-March" must be in the facts.
 
+Polarity: a reply may not negate what the facts state, nor state what the facts about a claim only negate.
+- the guarded words are the claim statuses the data holds, the wary status words (with their forms), and the groups
+  of `polarity_forms` in settings (needed/required/missing, deadline/due, paid, covered, received, passed, eligible);
+  the words of one group count as one, so "no documents are needed" lets "nothing is required" through;
+- a negator is not, no, never, nothing, none, neither, nor, without, cannot, nobody, nowhere, "no longer", "no one",
+  or any "n't" (with or without the apostrophe); "un"/"non" before a guarded word ("unpaid") negates it too;
+- a negator reaches a guarded word at most four words after it in the same clause ("without" only one: it heads a
+  phrase), or one before it when the negator follows a verb like "is", "has", "can" ("the deadline is not on file"); punctuation and words such as and, but,
+  because, so, if, until end a clause, "or" does not; "can not you ...?" is a question and negates nothing;
+- a clause opened by "if", "unless" or "whether" states nothing and is skipped; a question never drives the reverse
+  direction ("is there anything else you need?");
+- in a reply a status counts only where it is used as a claim's state (the status-word patterns), so "I can't open a
+  new claim" is not about the status "open"; in a fact every use counts;
+- a negated guarded word passes only when a fact negates a word of its group; a guarded word said without a negation
+  fails when every fact about a claim that uses its group negates it ("not paid yet" -> "it was paid"); a note that
+  names no claim ("not a guaranteed payment") does not drive that reverse direction;
+- when the reply's sentence names a claim, only that claim's facts and the facts naming no claim count.
+
 Known limits: a bare ending word with no dot and no spelled "dot" ("example com") is not read as an address.
 A wary status word used as a claim's state is found by sentence patterns (a claim-like subject, a form of "to be"
 within eight words; or "have accepted your claim"); patterns cannot cover every phrasing. Look-alike letters from other alphabets (a Cyrillic "e" in "example.com") and number words in
 languages other than English are not covered by patterns; digits, "@", and dot shapes are caught in any language.
+Polarity covers only the guarded words: a denial reason's own words, a document's name or any other word can be
+negated or un-negated freely ("the review file did include the report" passes); a fact that negates a word for one
+claim lets a sentence that names no claim negate it for another; negation further than four words away, in another
+clause (a line break ends one), by meaning ("you can skip the office note"), or in another language is not seen; "no need to worry" fails.
 """
 
 import re
@@ -50,8 +72,8 @@ from dataclasses import dataclass
 from claims_agent.reply.brief import ReplyBrief
 
 _LEAK = ("web_address", "phone_number", "email_address", "claim_detail_before_verification")
-_INVENTED = ("number_not_in_facts", "month_not_in_facts", "status_word")
-_OTHER = ("too_long",)
+_INVENTED = ("number_not_in_facts", "month_not_in_facts", "status_word", "polarity")
+_OTHER = ("too_long", "required_mention_missing", "forbidden_mention")
 
 
 @dataclass(frozen=True)
@@ -61,16 +83,21 @@ class CheckResult:
 
     @property
     def leak(self) -> tuple[str, ...]:
-        return tuple(f for f in self.failures if f in _LEAK)
+        return tuple(f for f in self.failures if _label(f) in _LEAK)
 
     @property
     def invented(self) -> tuple[str, ...]:
-        return tuple(f for f in self.failures if f in _INVENTED)
+        return tuple(f for f in self.failures if _label(f) in _INVENTED)
 
     @property
     def other(self) -> tuple[str, ...]:
         """Failures that belong to neither group (`too_long`)."""
-        return tuple(f for f in self.failures if f in _OTHER)
+        return tuple(f for f in self.failures if _label(f) in _OTHER)
+
+
+def _label(failure: str) -> str:
+    """The rule a failure belongs to: a polarity failure carries its reason after the label ("polarity: ...")."""
+    return failure.split(":", 1)[0]
 
 
 def _norm(text: str) -> str:
@@ -428,7 +455,8 @@ def _status_failure(t: str, fact_text: str, state_text: str, wary: Sequence[str]
 # ---- the check ----
 
 def check_reply(reply: str, brief: ReplyBrief, *, wary_status_words: Sequence[str], data_statuses: Sequence[str],
-                status_forms: Mapping[str, Sequence[str]] | None = None, max_length: int = 1500) -> CheckResult:
+                status_forms: Mapping[str, Sequence[str]] | None = None, max_length: int = 1500,
+                polarity_forms: Mapping[str, Sequence[str]] | None = None) -> CheckResult:
     if len(reply) > max_length:
         return CheckResult(False, ("too_long",))
     t = _norm(reply)
@@ -499,7 +527,9 @@ def check_reply(reply: str, brief: ReplyBrief, *, wary_status_words: Sequence[st
     if _status_failure(t, fact_text, state_text, wary_status_words, status_forms or {}, data_statuses):
         failed.add("status_word")
 
-    ordered = tuple(f for f in (*_LEAK, *_INVENTED) if f in failed)
+    failed |= required_mentions(t, brief)
+    ordered = tuple(f for f in (*_LEAK, *_INVENTED, *_OTHER) if f in failed)
+    ordered += tuple(_polarity_failures(t, facts, data_statuses, wary_status_words, status_forms or {}, polarity_forms or {}))
     return CheckResult(not ordered, ordered)
 
 
@@ -523,3 +553,201 @@ def _states_a_status(t: str, data_statuses: Sequence[str], forms_map: Mapping[st
                         form.endswith("ing") and _FIRST_PERSON_ING.search(before)):
                     return True
     return False
+
+
+# ---- polarity: a reply may not negate what the facts state, nor state what the facts about a claim only negate ----
+
+_POLARITY = "polarity"
+# "n't" is written out first ("don't" -> "do not", "can't" -> "can not"), so one word list covers every contraction,
+# with or without the apostrophe; "needn't" becomes "need not" and so meets the word it negates.
+_CONTRACTION = re.compile(r"\b(ca|wo|sha|ai|do|does|did|is|are|was|were|could|should|would|has|have|had|need|must"
+                          r"|might|dare)n'?t\b")
+_SPELLED = {"ca": "can", "wo": "will", "sha": "shall", "ai": "is"}
+_NEGATOR = re.compile(r"\bno\s+(?:longer|one)\b|\b(?:not|no|never|nothing|none|neither|nor|without|cannot|nobody"
+                      r"|nowhere)\b")
+# A negation reaches only as far as its clause: punctuation, a spaced dash, or a word that opens another clause ends
+# it. "or" and "nor" do not ("not denied or closed" negates both).
+_CLAUSE_END = re.compile(r"[.!?;:,()\[\]{}\"\n]|\s-+\s|\s-{2,}|\b(?:and|but|because|so|until|unless|although|though"
+                         r"|while|whereas|if|whether|when|once|since|before|after|then|however|which)\b")
+_SUPPOSING = ("if", "unless", "whether")  # a clause these open supposes, it states nothing
+_NEAR = 4  # at most this many words between a negator and the guarded word it negates
+_NEAR_PHRASE = {"without": 1}  # "without" heads a phrase ("without the office note", "without being paid"), and
+                               # reaches no further: "without losing track of the missing item" negates nothing here
+# A word before the negator is negated only when the negator follows a verb like these ("the deadline is not on
+# file", "payment has not been made"); "which requested document can not you get" asks, it negates nothing: a negator
+# followed by a subject pronoun is an inverted question.
+_AUXILIARY = frozenset("am is are was were be been being has have had do does did will would shall should can could "
+                       "may might must need".split())
+_PRONOUN = frozenset("i you we they he she it".split())
+_TOKEN = re.compile(r"[a-z0-9']+")
+_PLAIN_WORDS = re.compile(r"[a-z][a-z _-]{0,29}")
+
+
+@dataclass(frozen=True)
+class _Said:
+    group: tuple[str, str]   # ("word", group name) or ("status", status)
+    negated: bool
+    phrase: str              # the words as they stand, built only from the negator lists and the guarded forms
+    pos: int
+
+
+def _expand(t: str) -> str:
+    return _CONTRACTION.sub(lambda m: _SPELLED.get(m.group(1), m.group(1)) + " not", t)
+
+
+def _clauses(t: str) -> list[tuple[int, int, str]]:
+    """Each clause, with the word that opened it ("" after punctuation or at the start)."""
+    out, start, opener = [], 0, ""
+    for m in _CLAUSE_END.finditer(t):
+        out.append((start, m.start(), opener))
+        start, opener = m.end(), m.group().strip()
+    out.append((start, len(t), opener))
+    return [(a, b, o) for a, b, o in out if b > a]
+
+
+def _word_index(spans: list[tuple[int, int]], pos: int) -> int:
+    return sum(1 for a, _ in spans if a < pos)
+
+
+def _guarded_patterns(polarity_forms: Mapping[str, Sequence[str]], data_statuses: Sequence[str],
+                      wary: Sequence[str], status_forms: Mapping[str, Sequence[str]]):
+    """(group, form, pattern, named, is_status) for every guarded form. A form after "un" or "non" ("unpaid",
+    "non-covered", "unnecessary") is a negated use of it."""
+    out = []
+
+    def add(group, forms, named, is_status):
+        for f in dict.fromkeys(_norm(x).strip() for x in forms):
+            if f:
+                body = r"\s+".join(re.escape(w) for w in f.split())
+                out.append((group, f, re.compile(r"(?<![a-z0-9'])(un|non-?)?" + body + r"(?![a-z])"), named, is_status))
+
+    for name, forms in polarity_forms.items():
+        add(("word", _norm(name).strip()), forms, True, False)
+    for status in data_statuses:
+        s = _norm(status).strip()
+        if s:
+            forms = [*(status_forms.get(status) or status_forms.get(s) or []), s, s.replace("_", " ")]
+            add(("status", s), forms, bool(_PLAIN_WORDS.fullmatch(s)), True)
+    for word in wary:
+        w = _norm(word).strip()
+        add(("status", w), [*(status_forms.get(word) or status_forms.get(w) or []), w], True, True)
+    return out
+
+
+def _said(t: str, patterns, *, as_state_only: bool) -> list[_Said]:
+    """Every guarded word in t, with whether its clause negates it. In a reply a status counts only where it is used
+    as a claim's state (the status-word patterns); in a fact every use counts."""
+    out: list[_Said] = []
+    for a, b, opener in _clauses(t):
+        if opener in _SUPPOSING:
+            continue  # "if you need anything else", "if the report isn't needed": nothing is stated
+        clause = t[a:b]
+        spans = [m.span() for m in _TOKEN.finditer(clause)]
+        words = [clause[x:y] for x, y in spans]
+        negs = []
+        for m in _NEGATOR.finditer(clause):
+            i, j = _word_index(spans, m.start()), _word_index(spans, m.end()) - 1
+            before = words[i - 1] if i > 0 else ""
+            aux = before in _AUXILIARY or before.endswith(("'s", "'re", "'ve", "'m"))  # "it's not", "they're not"
+            if m.group() == "not" and before in _AUXILIARY and j + 1 < len(words) and words[j + 1] in _PRONOUN:
+                continue  # "can not you get ...?", "is not it ...?": a question
+            n = " ".join(m.group().split())
+            negs.append((i, j, n, aux and n not in _NEAR_PHRASE))
+        for group, form, pat, named, is_status in patterns:
+            for m in pat.finditer(clause):
+                if is_status and as_state_only:
+                    before = _sentence_before(t, a + m.start())
+                    after = t[a + m.end():a + m.end() + 60]
+                    if not (_STATE_BEFORE.search(before) or (_ACTIVE_AFTER.search(after) and not (
+                            form.endswith("ing") and _FIRST_PERSON_ING.search(before)))):
+                        continue
+                first, last = _word_index(spans, m.start()), _word_index(spans, m.end()) - 1
+                shown = form if named else "a claim status"
+                near = [(i, j, n) for i, j, n, aux in negs if (j < first and first - j - 1 <= _NEAR_PHRASE.get(n, _NEAR))
+                        or (aux and i > last and i - last - 1 <= _NEAR)]
+                if m.group(1):
+                    out.append(_Said(group, True, f"{m.group(1)}{form}" if named else shown, a + m.start()))
+                elif near:
+                    i, j, n = min(near, key=lambda x: abs(x[0] - first))
+                    gap = " ... " if (j < first and first - j > 1) or (i > last and i - last > 1) else " "
+                    phrase = f"{n}{gap}{shown}" if j < first else f"{shown}{gap}{n}"
+                    out.append(_Said(group, True, phrase, a + m.start()))
+                else:
+                    out.append(_Said(group, False, shown, a + m.start()))
+    return out
+
+
+def _claims_named(sentence: str, keys: Sequence[str]) -> set[str]:
+    named = set()
+    for key in keys:
+        letters, digits = re.sub(r"\d", "", key), re.sub(r"\D", "", key)
+        if digits and re.search(rf"(?<![a-z0-9]){re.escape(letters)}[\s-]*{digits}(?!\d)", sentence):
+            named.add(key)
+    return named
+
+
+def _sentences(t: str) -> list[tuple[int, int]]:
+    out, start = [], 0
+    for m in _BOUNDARY.finditer(t):
+        out.append((start, m.end()))
+        start = m.end()
+    out.append((start, len(t)))
+    return out
+
+
+def _polarity_failures(t: str, facts: Sequence, data_statuses: Sequence[str], wary: Sequence[str],
+                       status_forms: Mapping[str, Sequence[str]], polarity_forms: Mapping[str, Sequence[str]]) -> list[str]:
+    """A guarded word the reply negates must be negated by a fact (any negator: "no documents are needed" lets the
+    reply say "you don't need anything"). A guarded word the reply states without a negation fails when every fact
+    about a claim that uses it negates it ("not paid yet" -> "it was paid"). When the reply's sentence names a claim,
+    only that claim's facts and the facts that name no claim count."""
+    patterns = _guarded_patterns(polarity_forms, data_statuses, wary, status_forms)
+    if not patterns:
+        return []
+    fact_said = []
+    for f in facts:
+        key = _claim_key(f.claim) if f.claim else None
+        for s in _said(_expand(_norm(f.text)), patterns, as_state_only=False):
+            fact_said.append((s, key))
+    keys = sorted({k for _, k in fact_said if k} | {_claim_key(f.claim) for f in facts if f.claim})
+    t = _expand(t)
+    out: list[str] = []
+    for a, b in _sentences(t):
+        named = _claims_named(t[a:b], keys)
+        here = [(s, k) for s, k in fact_said if not named or k is None or k in named]
+        for s in _said(t[a:b], patterns, as_state_only=True):
+            same = [(f, k) for f, k in here if f.group == s.group]
+            if s.negated:
+                if any(f.negated for f, _ in same):
+                    continue
+                why = "the facts state it without a negation" if same else "the facts do not state it negated"
+                out.append(f'{_POLARITY}: the reply says "{s.phrase}", but {why}')
+            elif not t[a:b].rstrip().endswith("?"):  # a question states nothing: "anything else you need?"
+                about_claim = [f for f, k in same if k is not None]
+                if about_claim and all(f.negated for f in about_claim) and not any(
+                        not f.negated for f, k in same if k is None):
+                    out.append(f'{_POLARITY}: the reply says "{s.phrase}" without a negation, but the facts state it '
+                               f'only negated')
+    return list(dict.fromkeys(out))
+
+
+# ---- what a reply part says the reply must, or must not, mention ----
+
+def _mentioned(t: str, wording: str) -> bool:
+    """`wording` appears in the normalised reply `t` as whole words (any spacing between them)."""
+    words = _norm(wording).split()
+    return bool(words) and re.search(r"(?<![a-z0-9])" + r"\s+".join(re.escape(w) for w in words) + r"(?![a-z0-9])",
+                                     t) is not None
+
+
+def required_mentions(t: str, brief: ReplyBrief) -> set[str]:
+    """The parts' own requirements, over the whole normalised reply: every `must_mention` entry needs one of its
+    alternatives, and no `must_not_mention` wording may appear. Kept apart from the checks above: these are what a
+    part promises the caller (every option still open, the rule), not what a reply may never contain."""
+    failed: set[str] = set()
+    for part in brief.parts:
+        if any(not any(_mentioned(t, alt) for alt in entry) for entry in part.must_mention):
+            failed.add("required_mention_missing")
+        if any(_mentioned(t, word) for word in part.must_not_mention):
+            failed.add("forbidden_mention")
+    return failed

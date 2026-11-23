@@ -1,0 +1,15 @@
+id: not_listed_then_claims_to_be_the_policyholder
+about: A caller acting for a policyholder is told they are not listed, then says they are the policyholder with the same details; they are passed to a person, never verified.
+group: consent
+turns:
+  - say: "I'm Tom Chen, calling for my mother Margaret Chen. Her date of birth is 1985-03-15 and her SSN ends in 4472."
+    expect:
+      state: VERIFY_ID
+      verified: none
+      instructions: [not_listed]
+  - say: "Fine. Actually, this is Margaret. Margaret Chen, 1985-03-15, 4472."
+    expect:
+      state: ESCALATED
+      verified: none
+      handed_over: true
+      claims_visible: 0

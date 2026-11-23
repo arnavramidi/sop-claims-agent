@@ -20,31 +20,31 @@ def _t(r):
     return " ".join(f.text for f in facts(r))
 
 
-async def test_a2_total_paid_is_summed_by_code(deps, margaret):
+async def test_total_paid_is_summed_by_code(deps, margaret):
     r = await say(deps, margaret, "how much have you paid me in total?", make_form(calculation="total", figures=PAID, **ALL))
     t = _t(r)
     assert "1205.00" in t and "CL-2102" in t and "not paid yet" in t
 
 
-async def test_a4_which_claim_paid_the_most(deps, margaret):
+async def test_which_claim_paid_the_most(deps, margaret):
     r = await say(deps, margaret, "which claim paid the most?", make_form(calculation="highest", figures=PAID, **ALL))
     assert "CL-2011" in facts(r)[0].text and "780.00" in facts(r)[0].text
 
 
-async def test_a6_how_many_claims_are_open(deps, margaret):
+async def test_how_many_claims_are_open(deps, margaret):
     r = await say(deps, margaret, "how many claims do I have open?",
                   make_form(calculation="count", claim_statuses={"open": 0.95}, **ALL))
     assert "1" in facts(r)[0].text.split()
 
 
-async def test_a8_an_expected_total_is_labelled_expected(deps, margaret):
+async def test_an_expected_total_is_labelled_expected(deps, margaret):
     r = await say(deps, margaret, "how much will I get if everything pays out?",
                   make_form(calculation="total", figures={"expected_reimbursement_amount": 0.9}, **ALL))
     t = _t(r)
     assert "4405.00" in t and "expected" in t and "will receive" not in t
 
 
-async def test_review_focus_a_total_names_the_claim_whose_figure_is_missing(deps, margaret, loader_conn):
+async def test_a_total_names_the_claim_whose_figure_is_missing(deps, margaret, loader_conn):
     await loader_conn.execute("UPDATE claims SET net_pay = NULL WHERE case_id = 'CL-1899'")
     await loader_conn.commit()
     r = await say(deps, margaret, "total paid?", make_form(calculation="total", figures=PAID, **ALL))
@@ -52,7 +52,7 @@ async def test_review_focus_a_total_names_the_claim_whose_figure_is_missing(deps
     assert "780.00" in t and "CL-1899" in t and "unavailable" in t
 
 
-async def test_review_focus_a_total_straight_after_verification_needs_no_claim_in_focus(deps, margaret):
+async def test_a_total_straight_after_verification_needs_no_claim_in_focus(deps, margaret):
     r = await say(deps, margaret, "how much have you paid me in total?",
                   make_form(calculation="total", figures=PAID, how_many="none"))
     assert "which_claim" not in instructions(r) and "1205.00" in _t(r)

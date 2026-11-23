@@ -1,0 +1,14 @@
+id: both_of_them_after_a_list
+about: '"Both of them" in answer to a list of two claims puts both in focus instead of asking again.'
+group: resolving
+turns:
+  - say: "Hi, this is Margaret Chen. My date of birth is 1985-03-15 and the last four of my SSN are 4472."
+    expect:
+      verified: P9
+  - say: "I have a question about my healthcare claim from January."
+    expect:
+      instructions: [which_claim]
+  - say: "Both of them."
+    expect:
+      focus: [CL-2048, CL-2011]
+      instructions_lack: [which_claim]

@@ -170,7 +170,8 @@ async def prepare_ahead(deps: Deps, conversation_id: UUID) -> int:
         brief = _brief(item.part)
         text = await deps.wording.word(brief)
         result = check_reply(text, brief, wary_status_words=rc.wary_status_words, data_statuses=plan.statuses,
-                             status_forms=rc.status_forms, max_length=rc.max_length)
+                             status_forms=rc.status_forms, max_length=rc.max_length,
+                             polarity_forms=rc.polarity_forms)
         if result.passed:
             worded.append((item, text))
     if not worded:

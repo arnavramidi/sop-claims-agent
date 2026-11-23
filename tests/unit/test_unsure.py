@@ -91,7 +91,7 @@ async def test_an_unavailable_larger_model_asks_the_caller():
     assert r.larger == "unavailable"
 
 
-# ---- beyond the brief --------------------------------------------------------------------------------------------
+# ---- further cases --------------------------------------------------------------------------------------------
 
 async def test_one_option_left_after_narrowing_is_taken_without_a_model():
     filler, settler = ScriptedFiller(), ScriptedSettler()

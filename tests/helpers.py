@@ -44,12 +44,12 @@ def make_form(**overrides) -> Form:
     values["shaped_need"] = [YesNo(p=0.0) for _ in range(6)]
     for n in _OPTIONAL_YES_NO + _OPTIONAL_PICK:
         values[n] = None
-    for n in ("claim_types", "claim_statuses", "months", "years", "figures"):
+    for n in ("claim_types", "claim_statuses", "months", "years", "figures", "refuses"):
         values[n] = {}
     values["no_figure_said"] = YesNo(p=0.0)
     values["calculation"] = _pick("none")
     for key, v in overrides.items():
-        if key in ("claim_types", "claim_statuses", "months", "years", "figures"):
+        if key in ("claim_types", "claim_statuses", "months", "years", "figures", "refuses"):
             values[key] = {k: _yn(x) for k, x in v.items()}
         elif key == "shaped_need":
             values[key] = [_yn(x) for x in v]
@@ -68,7 +68,7 @@ async def verified_party(where, conversation_id) -> str | None:
     """The customer a conversation is verified as, read through the server's own account.
     `where` is anything exposing an AppDb as `.app` (a TestDb) or `.db` (later, Deps)."""
     app = where.app if hasattr(where, "app") else where.db
-    async with app.conversation(None) as c:
+    async with app.conversation(conversation_id) as c:  # the row rules show only the bound conversation
         row = await (await c.execute(
             "SELECT verified_party_id FROM conversations WHERE id = %s", [conversation_id])).fetchone()
     return None if row is None else row[0]
@@ -82,7 +82,7 @@ def with_held(memory, kind, value):
     return out
 
 
-# ---- whole-turn helpers (Task 11) ----------------------------------------------------------------------------
+# ---- whole-turn helpers ----------------------------------------------------------------------------
 # Conversations are built by talking through `say`, never by writing rows.
 
 STARTER = ROOT / "data" / "starter"
@@ -92,8 +92,8 @@ BRIEF_MSG = ("I'm the policyholder. My name is Margaret Chen, policy POL-9921. I
              "claim from January. DOB is 1985-03-15, SSN last four is 4472.")
 BRIEF_SAID = stated(policyholder_name="Margaret Chen", policy_number="POL-9921", date_of_birth=["1985-03-15"],
                     id_digits="4472")
-# The brief's message as the fast model should read it: an identity detail from the policyholder, about one denied
-# healthcare claim from January (no year said), with no clear need (Ruling 6).
+# The assignment's message as the fast model should read it: an identity detail from the policyholder, about one denied
+# healthcare claim from January (no year said), with no clear need.
 FORM = make_form(**GAVE, mentions_claim=True, claim_types={"healthcare": 0.95}, claim_statuses={"denied": 0.95},
                  months={1: 0.95}, no_year_said=True, how_many="one")
 
@@ -157,8 +157,9 @@ def facts(r) -> list[Fact]:
     return [f for p in parts(r) for f in p.facts]
 
 
-async def _read(deps, conversation_id, query: str, params: list, *, bound: bool = False):
-    async with deps.db.conversation(conversation_id if bound else None) as c:
+async def _read(deps, conversation_id, query: str, params: list):
+    """Read as the server's account, bound to the conversation (the row rules show no other conversation's rows)."""
+    async with deps.db.conversation(conversation_id) as c:
         return await (await c.execute(query, params)).fetchall()
 
 
@@ -177,7 +178,7 @@ async def focus(deps, conversation_id) -> list[str]:
 
 async def claims_visible(deps, conversation_id) -> int:
     """How many claim rows the database returns to the server's account for this conversation."""
-    return (await _read(deps, conversation_id, "SELECT count(*) FROM claims", [], bound=True))[0][0]
+    return (await _read(deps, conversation_id, "SELECT count(*) FROM claims", []))[0][0]
 
 
 async def escalation_reasons(deps, conversation_id) -> list[str]:
@@ -187,7 +188,13 @@ async def escalation_reasons(deps, conversation_id) -> list[str]:
 
 
 async def turn_record(deps, turn_id) -> dict:
-    return (await _read(deps, None, "SELECT record FROM turns WHERE id = %s", [turn_id]))[0][0]
+    """A turn's stored record, by the turn's id alone: read as the loader (a test fixture account), since the
+    server's account sees a turn only from a transaction bound to its conversation."""
+    import os
+
+    import psycopg
+    async with await psycopg.AsyncConnection.connect(os.environ["LOADER_DATABASE_URL"]) as c:
+        return (await (await c.execute("SELECT record FROM turns WHERE id = %s", [turn_id])).fetchone())[0]
 
 
 async def conversation(deps, conversation_id):
@@ -300,18 +307,22 @@ class ScriptedSettler:
 
 class HoldingWording(ScriptedWording):
     """The scripted wording model, with `hold()`: the next wording call waits until the returned event is set (so a
-    test can let a turn run while a reply is still being worded in the background)."""
+    test can let a turn run while a reply is still being worded in the background). `entered` is set when that call
+    has reached the gate, so a test can wait for it instead of guessing how long it takes."""
 
     def __init__(self, replies=None):
         super().__init__(replies)
         self._gate: asyncio.Event | None = None
+        self.entered = asyncio.Event()
 
     def hold(self) -> asyncio.Event:
         self._gate = asyncio.Event()
+        self.entered = asyncio.Event()
         return self._gate
 
     async def word(self, brief):
         gate, self._gate = self._gate, None
         if gate is not None:
+            self.entered.set()
             await gate.wait()
         return await super().word(brief)

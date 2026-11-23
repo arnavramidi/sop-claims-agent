@@ -82,7 +82,7 @@ def test_the_pending_question_and_unknown_names_are_not_sections():
             m.section(name, State.VERIFY_ID)
 
 
-def test_ruling_4_reset_wipes_everything_that_holds_claim_data():
+def test_reset_wipes_everything_that_holds_claim_data():
     m = full_memory(turn_no=7)
     fresh = Memory.fresh()
     for name in ("identity", "consent", "hints", "focus", "request", "wrapup"):
@@ -92,8 +92,8 @@ def test_ruling_4_reset_wipes_everything_that_holds_claim_data():
     assert kept_checks > 0  # a reset keeps the count: the five-check limit is per conversation
     m.reset_for_new_identity()
     kept = m.identity.wrong_values
-    assert kept == ["x"]  # the one thing a reset keeps (KEPT_ACROSS_RESET)
-    assert m.identity == IdentityMemory(wrong_values=kept) and m.consent == ConsentMemory(checks_used=kept_checks) and m.hints == HintMemory()
+    assert kept == ["x"]  # what a reset keeps (KEPT_ACROSS_RESET): the wrong values and the refused-representative mark
+    assert m.identity == IdentityMemory(wrong_values=kept, refused_as_representative=True) and m.consent == ConsentMemory(checks_used=kept_checks) and m.hints == HintMemory()
     assert m.focus == FocusMemory() and m.request == RequestMemory() and m.wrapup == WrapupMemory()
     assert m.pending is None
     assert m.counters.context_floor == 7 and m.counters.stalled_in_a_row == 0
@@ -143,3 +143,11 @@ def test_memory_survives_a_json_round_trip():
     m = full_memory()
     assert Memory.model_validate_json(m.model_dump_json()) == m
     assert Memory.model_validate({}) == Memory.fresh()
+
+
+def test_a_caller_refused_as_a_representative_stays_refused_across_a_reset():
+    m = Memory.fresh()
+    m.identity.refused_as_representative = True
+    m.identity.refused = ["phone"]
+    m.reset_for_new_identity()
+    assert m.identity.refused_as_representative and m.identity.refused == []

@@ -64,18 +64,18 @@ QUESTIONS = {"ask_need", "anything_else", "offer_followup", "offer_person", "ask
              "offer_email", "nearest_matches", "overview", "narrow_down"}
 
 
-# ---- the brief's tests ----------------------------------------------------------------------------------------
+# ---- core behaviour ----------------------------------------------------------------------------------------
 
 async def test_entry_gives_the_opening_then_offers_the_first_followup(deps, margaret):
     r = await say(deps, margaret, "why was my denied healthcare claim denied?", make_form(need="denial_question", claim_statuses={"denied": 0.95}, how_many="one"))
-    # Plan correction: the answers module names these facts "documents" and "deadline" (the answers asked for are
+    # The answers module names these facts "documents" and "deadline" (the answers asked for are
     # documents_needed and appeal_deadline).
     assert [f.kind for f in facts(r) if f.claim == "CL-2048" and f.kind != "found_claim"][:4] == ["status", "denial_reason", "documents", "deadline"]
-    # Plan correction (fix round 1, F1): an offer names the claim it was made for.
+    # An offer names the claim it was made for.
     assert (await memory(deps, margaret, "pending")).kind == "offer_followup:CL-2048:missing_required_material_alternatives"
 
 
-async def test_r16_the_reply_says_the_claim_is_not_denied_and_gives_its_status(deps, margaret):
+async def test_the_reply_says_the_claim_is_not_denied_and_gives_its_status(deps, margaret):
     r = await say(deps, margaret, "why was CL-2011 denied?", make_form(quoted_claim_number=True, need="denial_question"), stated(claim_number="CL-2011"))
     kinds = [f.kind for f in facts(r)]; assert kinds[:2] == ["not_denied", "status"] and "denial_reason" not in kinds
 
@@ -85,29 +85,29 @@ async def test_yes_to_the_offer_gives_that_followup(deps, denial_case):
     assert "missing_required_material_alternatives" in (await memory(deps, denial_case, "request.answered"))["CL-2048"]
 
 
-async def test_p14_cant_get_it_twice_hands_over(deps, denial_case):
+async def test_cant_get_it_twice_hands_over(deps, denial_case):
     cant = make_form(cant_get_document=True, which_document="pathology report")
     assert (await say(deps, denial_case, "I can't get the pathology report", cant)).state == State.PROCESS_CASE
     r = await say(deps, denial_case, "the lab still won't give it to me", cant)
     assert r.state == State.ESCALATED and await escalation_reasons(deps, denial_case) == ["document_unavailable"]
 
 
-async def test_p17_cant_get_one_document_gives_alternatives_for_that_one_only(deps, denial_case):
+async def test_cant_get_one_document_gives_alternatives_for_that_one_only(deps, denial_case):
     r = await say(deps, denial_case, "I have the pathology report but can't get the office note", make_form(cant_get_document=True, which_document="office note"))
     t = " ".join(f.text for f in facts(r)); assert "visit summary" in t and "certified copy" not in t
 
 
-async def test_p20_an_unlinked_followup_is_answered_and_the_mismatch_recorded(deps, denial_case):
+async def test_an_unlinked_followup_is_answered_and_the_mismatch_recorded(deps, denial_case):
     r = await say(deps, denial_case, "what file format do you need?", make_form(answer_wanted="file_format_requirements"))
     assert "specimen details" in " ".join(f.text for f in facts(r)) and {"mismatch": "file_format_requirements"} in r.inspector["fired"]
 
 
-async def test_x3_p4_a_followup_on_a_clean_claim_is_not_on_file(deps, closed_case):         # CL-2011 in focus
+async def test_a_followup_on_a_clean_claim_is_not_on_file(deps, closed_case):         # CL-2011 in focus
     r = await say(deps, closed_case, "when do I need to send it?", make_form(answer_wanted="submission_timing"))
     assert "not_on_file" in instructions(r) and "within a week" not in r.reply and "reasonable expectation" not in r.reply
 
 
-async def test_b11_the_same_unanswerable_question_three_times(deps, denial_case):
+async def test_the_same_unanswerable_question_three_times(deps, denial_case):
     stalls = []
     for i in range(3):
         r = await say(deps, denial_case, "what's the fax number?", make_form(answer_wanted="something_else"))
@@ -117,7 +117,7 @@ async def test_b11_the_same_unanswerable_question_three_times(deps, denial_case)
     assert stalls == [1, 2, 0]  # each turn stalls; the third reaches the limit, which offers a person and resets it
 
 
-async def test_r22_answers_given_are_remembered_per_claim_across_a_switch(deps, denial_case):
+async def test_answers_given_are_remembered_per_claim_across_a_switch(deps, denial_case):
     await say(deps, denial_case, "yes please", make_form(pending_reply="yes"))
     await say(deps, denial_case, "and my auto claim?", make_form(answer_wanted="something_else", mentions_claim=True, claim_types={"auto": 0.95}, search_relation="new_search", how_many="one"))
     assert await focus(deps, denial_case) == ["CL-2102"]
@@ -125,12 +125,12 @@ async def test_r22_answers_given_are_remembered_per_claim_across_a_switch(deps, 
     assert "missing_required_material_alternatives" in (await memory(deps, denial_case, "request.answered"))["CL-2048"]
 
 
-async def test_r23_a_new_claim_mid_answer_is_not_a_stalled_turn(deps, denial_case):
+async def test_a_new_claim_mid_answer_is_not_a_stalled_turn(deps, denial_case):
     await say(deps, denial_case, "and my auto claim?", make_form(answer_wanted="something_else", mentions_claim=True, claim_types={"auto": 0.95}, search_relation="new_search", how_many="one"))
     assert await memory(deps, denial_case, "counters.stalled_in_a_row") == 0
 
 
-async def test_p22_a_changed_claim_row_shows_in_the_next_reply(deps, denial_case, loader_conn):
+async def test_a_changed_claim_row_shows_in_the_next_reply(deps, denial_case, loader_conn):
     await loader_conn.execute("UPDATE claims SET status = 'open' WHERE case_id = 'CL-2048'"); await loader_conn.commit()
     r = await say(deps, denial_case, "what's the status now?", make_form(answer_wanted="status"))
     assert "open" in " ".join(f.text for f in facts(r) if f.kind == "status")
@@ -167,7 +167,7 @@ async def test_yes_offers_the_next_followup_and_no_asks_if_there_is_anything_els
     assert instructions(r) == ["anything_else"] and (await memory(deps, denial_case, "pending")).kind == "anything_else"
 
 
-async def test_p19_with_every_linked_followup_answered_it_asks_if_there_is_anything_else(deps, denial_case):
+async def test_with_every_linked_followup_answered_it_asks_if_there_is_anything_else(deps, denial_case):
     await say(deps, denial_case, "yes please", make_form(pending_reply="yes"))
     r = await say(deps, denial_case, "yes", make_form(pending_reply="yes"))
     assert "within a week" in _texts(r) and "offer_followup" not in instructions(r) and "anything_else" in instructions(r)
@@ -198,7 +198,7 @@ async def test_a_document_not_on_the_claim_never_gets_another_documents_alternat
     assert r.state == State.PROCESS_CASE and await escalation_reasons(deps, denial_case) == []
 
 
-async def test_r2_3_a_document_not_on_the_list_never_hands_over_even_with_one_outstanding(deps):
+async def test_a_document_not_on_the_list_never_hands_over_even_with_one_outstanding(deps):
     cid, _ = await _verified(deps, "Ma Tian", "1964-09-10", "6688")    # CL-3001, one document: diagnosis report
     cant = make_form(cant_get_document=True, which_document="not_listed")
     for _ in range(3):
@@ -207,7 +207,7 @@ async def test_r2_3_a_document_not_on_the_list_never_hands_over_even_with_one_ou
     assert await memory(deps, cid, "request.alternatives_offered") == {} and await escalation_reasons(deps, cid) == []
 
 
-async def test_r2_3_no_document_named_with_one_outstanding_means_that_one_and_twice_hands_over(deps):
+async def test_no_document_named_with_one_outstanding_means_that_one_and_twice_hands_over(deps):
     cid, _ = await _verified(deps, "Ma Tian", "1964-09-10", "6688")
     cant = make_form(cant_get_document=True, which_document="none_stated")
     assert (await say(deps, cid, "I can't get it", cant)).state == State.PROCESS_CASE
@@ -241,7 +241,7 @@ async def test_a_linked_followup_records_no_mismatch(deps, denial_case):
     assert "within a week" in _texts(r) and not any("mismatch" in f for f in r.inspector["fired"])
 
 
-async def test_p16_a_passed_deadline_offers_a_person_and_never_the_week(deps, margaret):
+async def test_a_passed_deadline_offers_a_person_and_never_the_week(deps, margaret):
     await set_today(deps, margaret, "2026-03-20")
     r = await say(deps, margaret, "why was my denied healthcare claim denied?", make_form(need="denial_question", claim_statuses={"denied": 0.95}, how_many="one"))
     assert "has passed" in _texts(r) and "offer_person" in instructions(r) and "offer_followup" not in instructions(r)
@@ -309,7 +309,7 @@ async def test_a_claim_that_is_no_longer_visible_sends_the_caller_back_and_the_r
 
 async def _step_directly(deps, cid, form, mutate=None, message="a question about my claim"):
     """Run PROCESS_CASE's step in the conversation's own transaction, for memory talking cannot reach yet (the email
-    offer is POST_PROCESS's, a later task)."""
+    offer is POST_PROCESS's)."""
     from claims_agent.rules.process_case import step as process_step
     async with deps.db.conversation(cid) as c:
         conv, mem = await store.load_for_turn(c, cid)
@@ -362,7 +362,7 @@ async def test_the_single_claim_hop_now_runs_the_real_opening(deps):
     assert any(p.pending is not None and p.pending.kind.startswith("offer_followup:") for p in parts(r))
 
 
-# ---- fix round 1 ------------------------------------------------------------------------------------------------
+# ---- further cases ------------------------------------------------------------------------------------------------
 
 def _questions(r) -> list[str]:
     return [i for i in instructions(r) if i in QUESTIONS]
@@ -378,7 +378,7 @@ async def two_claims(deps, margaret):
     return margaret
 
 
-async def test_f1_a_yes_gives_the_followup_only_for_the_claim_it_was_offered_for(deps, two_claims):
+async def test_a_yes_gives_the_followup_only_for_the_claim_it_was_offered_for(deps, two_claims):
     r = await say(deps, two_claims, "yes please", make_form(pending_reply="yes"))
     assert "not_on_file" not in instructions(r) and "offer_person" not in instructions(r)
     assert {f.claim for f in facts(r) if f.kind == "guidance"} == {"CL-2048"}
@@ -387,7 +387,7 @@ async def test_f1_a_yes_gives_the_followup_only_for_the_claim_it_was_offered_for
     assert "missing_required_material_alternatives" not in answered.get("CL-2011", [])
 
 
-async def test_f1_an_offer_does_not_outlive_a_switch_to_another_claim(deps, denial_case):
+async def test_an_offer_does_not_outlive_a_switch_to_another_claim(deps, denial_case):
     await say(deps, denial_case, "and my auto claim?", make_form(answer_wanted="something_else", mentions_claim=True, claim_types={"auto": 0.95}, search_relation="new_search", how_many="one"))
     assert await focus(deps, denial_case) == ["CL-2102"]
     assert not (await memory(deps, denial_case, "pending")).kind.startswith("offer_followup:")
@@ -396,7 +396,7 @@ async def test_f1_an_offer_does_not_outlive_a_switch_to_another_claim(deps, deni
     assert not any(f.kind == "guidance" for f in facts(r))
 
 
-async def test_f1_a_stale_offer_for_a_claim_not_in_focus_is_ignored(deps, denial_case):
+async def test_a_stale_offer_for_a_claim_not_in_focus_is_ignored(deps, denial_case):
     def stale(mem):
         mem.pending = Pending(kind="offer_followup:CL-2102:submission_timing", label="hear about submission timing?",
                               yes_no=True)
@@ -405,7 +405,7 @@ async def test_f1_a_stale_offer_for_a_claim_not_in_focus_is_ignored(deps, denial
     assert "submission_timing" not in mem.request.answered["CL-2048"]
 
 
-async def test_f1_an_offer_naming_an_unknown_topic_is_ignored(deps, denial_case):
+async def test_an_offer_naming_an_unknown_topic_is_ignored(deps, denial_case):
     def odd(mem):
         mem.pending = Pending(kind="offer_followup:CL-2048:no_such_topic", label="hear about it?", yes_no=True)
     out, mem = await _step_directly(deps, denial_case, make_form(pending_reply="yes"), odd)
@@ -413,7 +413,7 @@ async def test_f1_an_offer_naming_an_unknown_topic_is_ignored(deps, denial_case)
     assert "no_such_topic" not in mem.request.answered["CL-2048"]
 
 
-async def test_f2_a_declined_followup_is_not_offered_again(deps, denial_case):
+async def test_a_declined_followup_is_not_offered_again(deps, denial_case):
     await say(deps, denial_case, "no thanks", make_form(pending_reply="no"))
     assert await memory(deps, denial_case, "request.declined") == {"CL-2048": ["missing_required_material_alternatives"]}
     r = await say(deps, denial_case, "how much did they allow?", make_form(answer_wanted="amounts"))
@@ -421,7 +421,7 @@ async def test_f2_a_declined_followup_is_not_offered_again(deps, denial_case):
     assert "missing_required_material_alternatives" not in (await memory(deps, denial_case, "request.answered"))["CL-2048"]
 
 
-async def test_f2_a_declined_followup_can_still_be_asked_for(deps, denial_case):
+async def test_a_declined_followup_can_still_be_asked_for(deps, denial_case):
     await say(deps, denial_case, "no thanks", make_form(pending_reply="no"))
     r = await say(deps, denial_case, "actually, what can I do if I can't get them?",
                   make_form(answer_wanted="missing_required_material_alternatives"))
@@ -429,14 +429,14 @@ async def test_f2_a_declined_followup_can_still_be_asked_for(deps, denial_case):
     assert "missing_required_material_alternatives" in (await memory(deps, denial_case, "request.answered"))["CL-2048"]
 
 
-async def test_f2_declines_are_wiped_by_a_different_person_reset(deps, denial_case):
+async def test_declines_are_wiped_by_a_different_person_reset(deps, denial_case):
     await say(deps, denial_case, "no thanks", make_form(pending_reply="no"))
     await say(deps, denial_case, "what about my husband's policy?", make_form(other_person_policy=True))
     m = await memory(deps, denial_case)
     assert m.request.declined == {} and m.request.alternatives_offered == {} and m.request.answered == {}
 
 
-async def test_f3_cant_get_any_of_them_gives_each_documents_alternatives_and_twice_hands_over(deps, denial_case):
+async def test_cant_get_any_of_them_gives_each_documents_alternatives_and_twice_hands_over(deps, denial_case):
     every = make_form(cant_get_document=True, which_document="all")
     r = await say(deps, denial_case, "I can't get any of these", every)
     t = _texts(r)
@@ -446,7 +446,7 @@ async def test_f3_cant_get_any_of_them_gives_each_documents_alternatives_and_twi
     assert r.state == State.ESCALATED and await escalation_reasons(deps, denial_case) == ["document_unavailable"]
 
 
-async def test_f3_one_new_document_in_the_set_is_not_a_hand_over(deps, denial_case):
+async def test_one_new_document_in_the_set_is_not_a_hand_over(deps, denial_case):
     await say(deps, denial_case, "I can't get the office note", make_form(cant_get_document=True, which_document="office note"))
     r = await say(deps, denial_case, "or any of them", make_form(cant_get_document=True, which_document="all"))
     assert r.state == State.PROCESS_CASE and "certified copy" in _texts(r)
@@ -454,7 +454,7 @@ async def test_f3_one_new_document_in_the_set_is_not_a_hand_over(deps, denial_ca
     assert r.state == State.ESCALATED
 
 
-async def test_f3_an_unnamed_document_among_several_is_asked_about(deps, denial_case):
+async def test_an_unnamed_document_among_several_is_asked_about(deps, denial_case):
     r = await say(deps, denial_case, "I can't get it", make_form(cant_get_document=True))
     assert "ask_which_document" in instructions(r) and (await memory(deps, denial_case, "pending")).kind == "which_document"
     assert {f.claim for f in facts(r) if f.kind == "requested_document"} == {"CL-2048"}
@@ -468,20 +468,20 @@ async def test_f3_an_unnamed_document_among_several_is_asked_about(deps, denial_
     assert r.state == State.ESCALATED
 
 
-async def test_r2_2_any_other_reply_to_the_which_document_question_is_an_ordinary_message(deps, denial_case):
+async def test_any_other_reply_to_the_which_document_question_is_an_ordinary_message(deps, denial_case):
     await say(deps, denial_case, "I can't get it", make_form(cant_get_document=True))
     r = await say(deps, denial_case, "actually, when's my deadline?", make_form(answer_wanted="appeal_deadline"))
     assert "ask_which_document" not in instructions(r) and any(f.kind == "deadline" for f in facts(r))
     assert await memory(deps, denial_case, "request.alternatives_offered") == {}
 
 
-async def test_r2_2_all_of_them_answers_the_which_document_question(deps, denial_case):
+async def test_all_of_them_answers_the_which_document_question(deps, denial_case):
     await say(deps, denial_case, "I can't get it", make_form(cant_get_document=True))
     await say(deps, denial_case, "all of them", make_form(which_document="all"))
     assert await memory(deps, denial_case, "request.alternatives_offered") == {"CL-2048": ["pathology report", "office note"]}
 
 
-async def test_f3_alternatives_survive_a_switch_and_back(deps, denial_case):
+async def test_alternatives_survive_a_switch_and_back(deps, denial_case):
     cant = make_form(cant_get_document=True, which_document="office note")
     await say(deps, denial_case, "I can't get the office note", cant)
     await say(deps, denial_case, "and my auto claim?", make_form(answer_wanted="something_else", mentions_claim=True, claim_types={"auto": 0.95}, search_relation="new_search", how_many="one"))
@@ -491,7 +491,7 @@ async def test_f3_alternatives_survive_a_switch_and_back(deps, denial_case):
     assert r.state == State.ESCALATED
 
 
-async def test_f3_a_document_beyond_the_offered_cap_is_found_by_its_exact_name(load_dataset):
+async def test_a_document_beyond_the_offered_cap_is_found_by_its_exact_name(load_dataset):
     s = load_settings()
     s = s.model_copy(update={"limits": s.limits.model_copy(update={"documents_offered": 1})})
     deps = make_deps(await load_dataset("starter"), settings=s)
@@ -504,31 +504,31 @@ async def test_f3_a_document_beyond_the_offered_cap_is_found_by_its_exact_name(l
     assert await memory(deps, cid, "request.alternatives_offered") == {"CL-2048": ["office note"]}
 
 
-async def test_f4_a_question_about_another_claim_goes_to_that_claim(deps, denial_case):
+async def test_a_question_about_another_claim_goes_to_that_claim(deps, denial_case):
     r = await say(deps, denial_case, "what's the status of my auto claim?", make_form(answer_wanted="status", mentions_claim=True, claim_types={"auto": 0.95}, search_relation="new_search", how_many="one"))
     assert await focus(deps, denial_case) == ["CL-2102"]
     assert {f.claim for f in facts(r) if f.kind == "status"} == {"CL-2102"}
 
 
-async def test_f4_a_question_about_this_claim_stays_on_it(deps, denial_case):
+async def test_a_question_about_this_claim_stays_on_it(deps, denial_case):
     r = await say(deps, denial_case, "what's the status of this claim?", make_form(answer_wanted="status", mentions_claim=True, search_relation="new_search", how_many="one"))
     assert await focus(deps, denial_case) == ["CL-2048"] and r.state == State.PROCESS_CASE
     assert {f.claim for f in facts(r) if f.kind == "status"} == {"CL-2048"}
 
 
-async def test_f5_no_thanks_but_a_question_answers_the_question(deps, denial_case):
+async def test_no_thanks_but_a_question_answers_the_question(deps, denial_case):
     r = await say(deps, denial_case, "No thanks, but when do I need to send it?", make_form(pending_reply="no", answer_wanted="submission_timing"))
     assert "within a week" in _texts(r) and "answer" in instructions(r)
     assert await memory(deps, denial_case, "request.declined") == {"CL-2048": ["missing_required_material_alternatives"]}
 
 
-async def test_f5_yes_and_cant_get_a_named_document_takes_the_document(deps, denial_case):
+async def test_yes_and_cant_get_a_named_document_takes_the_document(deps, denial_case):
     r = await say(deps, denial_case, "Yes, I can't get the office note", make_form(pending_reply="yes", cant_get_document=True, which_document="office note"))
     assert "visit summary" in _texts(r)
     assert await memory(deps, denial_case, "request.alternatives_offered") == {"CL-2048": ["office note"]}
 
 
-async def test_f6_the_brief_message_asks_one_question_and_only_after_the_answer(deps):
+async def test_the_assignment_message_asks_one_question_and_only_after_the_answer(deps):
     cid = await new_conversation(deps)
     r = await say(deps, cid, BRIEF_MSG, FORM, BRIEF_SAID)
     names = instructions(r)
@@ -538,17 +538,17 @@ async def test_f6_the_brief_message_asks_one_question_and_only_after_the_answer(
     assert "?" not in parts(r)[0].plain and r.reply.count("?") == 1
 
 
-async def test_f6_a_caller_who_verifies_and_asks_nothing_gets_one_question(deps):
+async def test_a_caller_who_verifies_and_asks_nothing_gets_one_question(deps):
     cid, r = await _verified(deps, "Margaret Chen", "1985-03-15", "4472")
     assert instructions(r) == ["verified", "ask_need"] and r.reply.count("?") == 1
 
 
-async def test_f6_a_single_claim_customer_is_not_asked_how_to_help_before_the_answer(deps):
+async def test_a_single_claim_customer_is_not_asked_how_to_help_before_the_answer(deps):
     cid, r = await _verified(deps, "Ma Tian", "1964-09-10", "6688")
     assert _questions(r) == ["offer_followup"] and r.reply.count("?") == 1
 
 
-async def test_f8_the_need_note_is_stated_only_for_a_claim_whose_row_holds_it(deps, margaret, loader_conn):
+async def test_the_need_note_is_stated_only_for_a_claim_whose_row_holds_it(deps, margaret, loader_conn):
     await say(deps, margaret, "why was CL-2011 denied?", make_form(quoted_claim_number=True, need="denial_question"), stated(claim_number="CL-2011"))
     await loader_conn.execute("UPDATE claims SET denial_reason = 'late filing' WHERE case_id = 'CL-2011'")
     await loader_conn.commit()
@@ -561,14 +561,14 @@ async def test_f8_the_need_note_is_stated_only_for_a_claim_whose_row_holds_it(de
     assert not any(f.kind == "not_denied" for p in out.parts for f in p.facts)
 
 
-async def test_f9_an_offer_the_engine_drops_is_recorded_as_dropped(deps, denial_case):
+async def test_an_offer_the_engine_drops_is_recorded_as_dropped(deps, denial_case):
     r = await say(deps, denial_case, "how much did they allow, or maybe a person?", make_form(answer_wanted="amounts", wants_person=0.5))
     assert "offer_followup" not in instructions(r) and "offer_person" in instructions(r)
     assert any(f.get("rule") == "offer_dropped" and f.get("kind", "").startswith("offer_followup:")
                for f in r.inspector["fired"])
 
 
-async def test_f10_a_state_that_keeps_claim_facts_from_models_gets_no_documents_and_every_answer(load_dataset):
+async def test_a_state_that_keeps_claim_facts_from_models_gets_no_documents_and_every_answer(load_dataset):
     s = load_settings()
     s = s.model_copy(update={"states": {**s.states, "PROCESS_CASE": s.states["PROCESS_CASE"].model_copy(update={"freedom": "strict"})}})
     deps = make_deps(await load_dataset("starter"), settings=s)
@@ -580,7 +580,7 @@ async def test_f10_a_state_that_keeps_claim_facts_from_models_gets_no_documents_
     assert "receipt_confirmation" in [a for a, _ in req.answers]
 
 
-async def test_f12_one_usable_reading_is_asked_about(deps, denial_case):
+async def test_one_usable_reading_is_asked_about(deps, denial_case):
     r = await say(deps, denial_case, "what about the timing?", make_form(answer_wanted=Pick(value="submission_timing", p=0.45, options={"submission_timing": 0.45, "none": 0.4})))
     assert "ask_which_answer" in instructions(r) and "submission timing" in _texts(r)
     assert "anything_else" not in instructions(r)
@@ -596,12 +596,12 @@ async def test_a_turn_that_ends_in_done_gets_no_need_question(deps, denial_case,
     assert r.state == State.DONE and "ask_need" not in instructions(r)
 
 
-# ---- fix round 2 ------------------------------------------------------------------------------------------------
+# ---- further cases ------------------------------------------------------------------------------------------------
 
 AUTO = dict(mentions_claim=True, claim_types={"auto": 0.95}, search_relation="new_search", how_many="one")
 
 
-async def test_r2_1_a_specific_question_about_another_claim_gets_that_answer(deps, denial_case):
+async def test_a_specific_question_about_another_claim_gets_that_answer(deps, denial_case):
     r = await say(deps, denial_case, "how much did they allow on my auto claim?", make_form(answer_wanted="amounts", **AUTO))
     assert await focus(deps, denial_case) == ["CL-2102"]
     texts = [f.text for f in facts(r) if f.claim == "CL-2102"]
@@ -610,7 +610,7 @@ async def test_r2_1_a_specific_question_about_another_claim_gets_that_answer(dep
     assert "amounts" in (await memory(deps, denial_case, "request.answered"))["CL-2102"]
 
 
-async def test_r2_1_a_followup_asked_about_another_claim_gets_that_followup(deps, closed_case):
+async def test_a_followup_asked_about_another_claim_gets_that_followup(deps, closed_case):
     r = await say(deps, closed_case, "and when do I need to send the documents for my denied claim?",
                   make_form(answer_wanted="submission_timing", mentions_claim=True, claim_statuses={"denied": 0.95},
                             search_relation="new_search", how_many="one"))
@@ -618,20 +618,20 @@ async def test_r2_1_a_followup_asked_about_another_claim_gets_that_followup(deps
     assert "within a week" in _texts(r) and not any(f.kind == "denial_reason" for f in facts(r))
 
 
-async def test_r2_1_an_answer_that_does_not_exist_for_the_other_claim_is_not_on_file(deps, denial_case):
+async def test_an_answer_that_does_not_exist_for_the_other_claim_is_not_on_file(deps, denial_case):
     r = await say(deps, denial_case, "and when do I send the auto claim's documents?",
                   make_form(answer_wanted="submission_timing", **AUTO))
     assert await focus(deps, denial_case) == ["CL-2102"] and "not_on_file" in instructions(r)
     assert "within a week" not in r.reply
 
 
-async def test_r2_1_the_brief_message_still_gets_the_opening(deps):
+async def test_the_assignment_message_still_gets_the_opening(deps):
     cid = await new_conversation(deps)
     r = await say(deps, cid, BRIEF_MSG, FORM, BRIEF_SAID)
     assert any(f.kind == "status" and f.claim == "CL-2048" for f in facts(r))
 
 
-async def test_r2_4_an_offer_is_matched_whole_never_by_its_start(deps, denial_case):
+async def test_an_offer_is_matched_whole_never_by_its_start(deps, denial_case):
     def longer(mem):
         mem.pending = Pending(kind=ALTERNATIVES_OFFER + ":extra", label="hear about it?", yes_no=True)
     out, mem = await _step_directly(deps, denial_case, make_form(pending_reply="yes"), longer)
@@ -639,7 +639,7 @@ async def test_r2_4_an_offer_is_matched_whole_never_by_its_start(deps, denial_ca
     assert {"rule": "offer_not_standing", "kind": ALTERNATIVES_OFFER + ":extra"} in out.fired
 
 
-async def test_r2_5_the_open_need_question_replaces_a_stale_offer(deps, denial_case, loader_conn):
+async def test_the_open_need_question_replaces_a_stale_offer(deps, denial_case, loader_conn):
     await loader_conn.execute("DELETE FROM claim_documents WHERE case_id = 'CL-2048'")
     await loader_conn.execute("DELETE FROM claims WHERE case_id = 'CL-2048'"); await loader_conn.commit()
     r = await say(deps, denial_case, "ok, and then?", make_form())
@@ -649,7 +649,7 @@ async def test_r2_5_the_open_need_question_replaces_a_stale_offer(deps, denial_c
     assert await memory(deps, denial_case, "counters.stalled_in_a_row") == stalled + 1  # a bare yes is not progress
 
 
-async def test_r2_6_the_which_document_question_has_its_own_instruction_and_text(deps, denial_case):
+async def test_the_which_document_question_has_its_own_instruction_and_text(deps, denial_case):
     r = await say(deps, denial_case, "I can't get it", make_form(cant_get_document=True))
     part = next(p for p in parts(r) if p.instruction == "ask_which_document")
     assert part.plain.startswith("Which document can't you get") and r.reply.count("?") == 1
@@ -698,3 +698,14 @@ async def test_an_upset_caller_asking_about_a_denial_is_worded_as_upset_and_gets
                             how_many="one", answer_wanted="denial_reason", mood=SPLIT_UPSET))
     assert deps.wording.briefs[-1].mood == "upset"
     assert [f.kind for f in facts(r) if f.claim == "CL-2048" and f.kind != "found_claim"][:4] == DENIAL_KINDS
+
+
+async def test_a_message_about_another_claim_goes_to_that_claim_before_any_document_help(deps, denial_case):
+    # The form reads "can't get a document" into a message that only turns to the auto claim (a reading carried over
+    # from the message before); the message is about the auto claim, so that claim is chosen, not a document asked.
+    r = await say(deps, denial_case, "What about my auto claim?",
+                  make_form(mentions_claim=True, claim_types={"auto": 1.0}, search_relation="new_search",
+                            cant_get_document=0.95, which_document=Pick(value="not_listed", p=0.3)))
+    assert await focus(deps, denial_case) == ["CL-2102"]
+    assert "ask_which_document" not in instructions(r)
+    assert "CL-2102" in {f.claim for f in facts(r)}

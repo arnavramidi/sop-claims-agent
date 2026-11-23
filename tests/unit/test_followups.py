@@ -43,17 +43,17 @@ def followup(g, topic):
 from claims_agent.answers.followups import exists_for, fill, next_followup
 
 
-def test_p16_a_passed_deadline_says_so_and_offers_a_person():
+def test_a_passed_deadline_says_so_and_offers_a_person():
     r = fill(followup(G, "submission_timing"), CL2048, G, S, date(2026, 3, 20))
     assert "passed" in text(r) and r.offer_person and "within a week" not in text(r)
 
 
-def test_p7_the_week_and_the_deadline_are_both_said():
+def test_the_week_and_the_deadline_are_both_said():
     t = text(fill(followup(G, "submission_timing"), CL2048, G, S, TODAY))
     assert "within a week" in t and "2026-03-18" in t
 
 
-def test_p8_the_file_format_answer_includes_each_documents_own_requirements():
+def test_the_file_format_answer_includes_each_documents_own_requirements():
     t = text(fill(followup(G, "file_format_requirements"), CL2048, G, S, TODAY))
     assert "specimen details" in t and "visit date" in t
 
@@ -67,7 +67,7 @@ def test_a_denied_claim_is_not_reworded_live():
     assert not fill(followup(G, "submission_method"), CL2048, G, S, TODAY).reword_live
 
 
-def test_p17_alternatives_are_for_that_document_only():
+def test_alternatives_are_for_that_document_only():
     t = text(fill(followup(G, "missing_required_material_alternatives"), CL2048, G, S, TODAY, document="office note"))
     assert "visit summary" in t and "certified copy" not in t
 
@@ -95,12 +95,12 @@ def test_a_disabled_followup_is_never_filled():
     assert "member portal" not in text(r) and not r.grounded and r.offer_person
 
 
-def test_p18_the_first_remaining_followup_in_order():
+def test_the_first_remaining_followup_in_order():
     answered = {"missing_required_material_alternatives", "submission_timing", "processing_time_after_submission"}
     assert next_followup("document_submission", CL2048, answered, G, S).topic == "submission_method"
 
 
-def test_p19_nothing_is_offered_once_all_are_answered():
+def test_nothing_is_offered_once_all_are_answered():
     assert next_followup("denial_question", CL2048, {"missing_required_material_alternatives", "submission_timing"}, G, S) is None
 
 
@@ -118,12 +118,12 @@ def test_comes_after_as_a_list_and_a_cycle_does_not_dead_end():
     assert next_followup("document_submission", CL2048, set(), G, s) is not None
 
 
-def test_x20_a_followup_not_needing_documents_exists_on_a_clean_claim():
+def test_a_followup_not_needing_documents_exists_on_a_clean_claim():
     ug = guidance_from(read_folder(UNMARKED))
     assert exists_for(followup(ug, "processing_time_after_submission"), CL2102, ug, S)
 
 
-def test_x3_a_followup_does_not_exist_for_a_claim_with_nothing_outstanding():
+def test_a_followup_does_not_exist_for_a_claim_with_nothing_outstanding():
     assert not exists_for(followup(G, "submission_timing"), CL2102, G, S)
 
 

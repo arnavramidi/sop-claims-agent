@@ -7,7 +7,7 @@ import types
 from claims_agent.form.fields import Pick
 from claims_agent.reply.brief import Fact, ReplyBrief, ReplyPart
 from claims_agent.reply.wording import ModelWording
-from claims_agent.rules.mood import caller_mood, frustrated_again
+from claims_agent.rules.mood import caller_mood
 from claims_agent.settings import load_thresholds
 from claims_agent.states import State
 
@@ -29,14 +29,6 @@ def test_a_message_split_between_upset_and_angry_reads_as_the_likelier_of_them()
 def test_an_unsure_reading_with_little_weight_off_calm_is_not_known():
     assert caller_mood(Pick(value="calm", p=0.4, options={"calm": 0.55, "uneasy": 0.25, "upset": 0.2}), T) is None
     assert caller_mood(Pick(), T) is None
-
-
-def test_a_person_is_offered_when_the_caller_is_upset_twice_running_and_nothing_moved():
-    assert frustrated_again(["calm", "upset", "angry"], progressed=False)
-    assert not frustrated_again(["upset", "angry"], progressed=True)
-    assert not frustrated_again(["calm", "angry"], progressed=False)
-    assert not frustrated_again(["angry"], progressed=False)
-    assert not frustrated_again(["upset", "uneasy"], progressed=False)
 
 
 class _Responses:

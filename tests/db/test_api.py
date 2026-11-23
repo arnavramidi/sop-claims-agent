@@ -84,22 +84,21 @@ def wrapped_and_sent(client, scripted):
     return cid
 
 
-# ---- the brief's tests ----------------------------------------------------------------------------------------
+# ---- core behaviour ----------------------------------------------------------------------------------------
 
-def test_a_conversation_runs_the_brief_message(client, scripted):
+def test_a_conversation_runs_the_assignment_message(client, scripted):
     cid = client.post("/api/conversations", json={}).json()["conversation_id"]
     scripted.next(make_form(**GAVE, need="denial_question", claim_types={"healthcare": 0.95}, claim_statuses={"denied": 0.95}, months={1: 0.95}, how_many="one"), BRIEF_SAID)
     body = client.post(f"/api/conversations/{cid}/messages", json={"text": BRIEF_MSG}).json()
     assert body["state"] == "PROCESS_CASE" and body["inspector"]["claims_visible"] == 4
     assert {"state_before", "state_after", "freedom", "filler", "form", "stated", "flags", "fired", "parts",
             "reply_source", "checks", "memory", "counts", "claims_visible", "outbox", "handover_note"} <= set(body["inspector"])
-    # Plan correction: Task 11's pinned payload gives freedom as {"level", and the three switches}, not a bare name.
+    # The inspector gives freedom as {"level", and the three switches}, not a bare name.
     assert body["inspector"]["freedom"]["level"] == "free"
 
 
 def test_a_rejected_key_is_a_clear_401_and_nothing_moves(client, scripted):
-    # Plan correction: model errors take the model's name (deviations, Task 11 helpers line); GET also returns the
-    # conversation's controls (ruling for Part B).
+    # Model errors take the model's name; GET also returns the conversation's controls.
     cid = client.post("/api/conversations", json={}).json()["conversation_id"]; scripted.fail_with(ModelKeyRejected("scripted"))
     r = client.post(f"/api/conversations/{cid}/messages", json={"text": "hello there"})
     assert r.status_code == 401 and r.json() == {"error": "model_key_rejected", "message": "The model key was rejected. Check OPENAI_API_KEY."}
@@ -112,7 +111,7 @@ def test_reload_restores_the_transcript(client, scripted):
     assert [t["message"] for t in got["turns"]] == ["hello there"] and got["turns"][0]["reply"]
 
 
-def test_v11_the_inspector_masks_a_typed_full_id(client, scripted):
+def test_the_inspector_masks_a_typed_full_id(client, scripted):
     cid = client.post("/api/conversations", json={}).json()["conversation_id"]; scripted.next(make_form(**GAVE), stated(id_digits="123454472"))
     assert "12345" not in json.dumps(client.post(f"/api/conversations/{cid}/messages", json={"text": "my ssn is 123454472"}).json()["inspector"])
 
@@ -234,13 +233,13 @@ def test_an_unexpected_error_is_a_fixed_500(api_db, scripted):
     assert "secret" not in body["message"]
 
 
-def test_a_missing_key_gives_the_rejected_key_body(client, scripted, monkeypatch):
+def test_a_missing_key_says_the_key_is_not_set(client, scripted, monkeypatch):
     monkeypatch.delenv("OPENAI_API_KEY", raising=False)
     deps = client.app.state.deps
     deps.filler, deps.extractor, deps.wording = api.model_clients(deps.settings)
     cid = client.post("/api/conversations", json={}).json()["conversation_id"]
     r = client.post(f"/api/conversations/{cid}/messages", json={"text": "hello there"})
-    assert r.status_code == 401 and r.json() == {"error": "model_key_rejected", "message": "The model key was rejected. Check OPENAI_API_KEY."}
+    assert r.status_code == 401 and r.json() == {"error": "model_key_not_set", "message": "No model key is set. Add OPENAI_API_KEY to the .env file, then restart the server."}
     assert client.get("/api/meta").json()["filler"] == "decisions"
 
 
@@ -254,3 +253,89 @@ def test_the_page_and_its_files_carry_the_policy(client, path, kind):
         "default-src 'none'; script-src 'self'; style-src 'self'; connect-src 'self'; img-src 'self'; "
         "base-uri 'none'; form-action 'none'; frame-ancestors 'none'; require-trusted-types-for 'script'")
     assert r.headers["x-content-type-options"] == "nosniff" and r.headers["referrer-policy"] == "no-referrer"
+
+
+# ---- a rating belongs to its conversation ---------------------------------------------------------------------
+
+def _rate(client, cid, turn_id, rating=1, comment=None):
+    body = {"rating": rating} if comment is None else {"rating": rating, "comment": comment}
+    return client.post(f"/api/conversations/{cid}/turns/{turn_id}/feedback", json=body)
+
+
+def _ratings(api_db) -> list[tuple]:
+    import psycopg
+    with psycopg.connect(api_db.loader_url) as conn:
+        return conn.execute("SELECT conversation_id::text, turn_id, rating FROM feedback ORDER BY turn_id").fetchall()
+
+
+def test_a_rating_is_stored_against_its_own_conversation(client, scripted, api_db):
+    cid = start_and_say(client, scripted, "hello there")
+    turn_id = client.get(f"/api/conversations/{cid}").json()["turns"][0]["turn_id"]
+    assert _rate(client, cid, turn_id, -1, "too short").json() == {"ok": True}
+    assert _rate(client, cid, turn_id, 1).json() == {"ok": True}  # a second rating replaces the first
+    assert _ratings(api_db) == [(cid, turn_id, "1")]
+
+
+def test_another_conversations_turn_answers_like_a_turn_that_does_not_exist(client, scripted, api_db):
+    a = start_and_say(client, scripted, "hello there")
+    b = start_and_say(client, scripted, "hello again")
+    b_turn = client.get(f"/api/conversations/{b}").json()["turns"][0]["turn_id"]
+    theirs = _rate(client, a, b_turn)
+    missing = _rate(client, a, 999_999)
+    assert theirs.status_code == missing.status_code == 404
+    assert theirs.json() == missing.json() == {"error": "turn_not_found", "message": "There is no such turn."}
+    unknown_conversation = _rate(client, "00000000-0000-4000-8000-000000000000", b_turn)
+    assert unknown_conversation.status_code == 404 and unknown_conversation.json() == missing.json()
+    assert _ratings(api_db) == []
+
+
+def test_the_rating_route_without_a_conversation_is_gone(client, scripted):
+    cid = start_and_say(client, scripted, "hello there")
+    turn_id = client.get(f"/api/conversations/{cid}").json()["turns"][0]["turn_id"]
+    r = client.post(f"/api/turns/{turn_id}/feedback", json={"rating": 1})
+    assert r.status_code == 404 and r.json()["error"] == "not_found"
+
+
+# ---- the identity match table never leaves the server before verification -----------------------------------
+
+DOB_ONLY = stated(date_of_birth=["1985-03-15"])
+
+
+def _stored_records(api_db, cid) -> list[dict]:
+    import psycopg
+    with psycopg.connect(api_db.loader_url) as conn:
+        return [r for (r,) in conn.execute("SELECT record FROM turns WHERE conversation_id = %s ORDER BY turn_no",
+                                           [cid]).fetchall()]
+
+
+def test_the_match_table_is_not_returned_before_the_caller_is_verified(client, scripted, api_db):
+    cid = client.post("/api/conversations", json={}).json()["conversation_id"]
+    scripted.next(make_form(**GAVE), DOB_ONLY)
+    sent = client.post(f"/api/conversations/{cid}/messages", json={"text": "my date of birth is 1985-03-15"})
+    assert sent.status_code == 200 and sent.json()["state"] == "VERIFY_ID"
+    restored = client.get(f"/api/conversations/{cid}").json()["turns"][0]["inspector"]
+    for panel in (sent.json()["inspector"], restored):
+        assert "tally" not in panel["memory"]["identity"]
+    assert "P9" not in sent.text and "P9" not in client.get(f"/api/conversations/{cid}").text
+    assert _stored_records(api_db, cid)[0]["memory"]["identity"]["tally"]  # the full record stays in the database
+
+
+def test_after_verification_the_match_table_names_only_the_verified_customer(client, scripted, api_db):
+    cid = client.post("/api/conversations", json={}).json()["conversation_id"]
+    scripted.next(make_form(**GAVE), DOB_ONLY)
+    client.post(f"/api/conversations/{cid}/messages", json={"text": "my date of birth is 1985-03-15"})
+    scripted.next(make_form(**GAVE), BRIEF_SAID)
+    sent = client.post(f"/api/conversations/{cid}/messages", json={"text": BRIEF_MSG}).json()
+    assert sent["state"] == "RESOLVE_INTENT"  # verified
+    turns = client.get(f"/api/conversations/{cid}").json()["turns"]
+    for panel in (sent["inspector"], turns[1]["inspector"]):
+        assert set(panel["memory"]["identity"]["tally"]) == {"P9"}
+    assert "tally" not in turns[0]["inspector"]["memory"]["identity"] or \
+        set(turns[0]["inspector"]["memory"]["identity"]["tally"]) <= {"P9"}
+
+
+# ---- the health route reports the database -----------------------------------------------------------------
+
+def test_health_reports_a_reachable_database(client):
+    r = client.get("/health")
+    assert r.status_code == 200 and r.json() == {"ok": True, "database": "ok"}

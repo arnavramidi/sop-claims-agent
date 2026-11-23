@@ -23,6 +23,23 @@ pytestmark = pytest.mark.db
 ASK_TIMING = make_form(answer_wanted=Pick(value="submission_timing", p=0.92))
 
 
+# Generous: a loaded machine may be slow, and nothing here waits this long unless something is wrong.
+WAIT = 30
+
+
+async def _held_job(deps, conversation_id):
+    """Prepare replies in the background with the first wording call held at its gate; returns once the job is
+    parked there (the gate, and the job)."""
+    gate = deps.wording.hold()
+    job = asyncio.create_task(prepare_ahead(deps, conversation_id))
+    entered = asyncio.create_task(deps.wording.entered.wait())
+    done, _ = await asyncio.wait({entered, job}, timeout=WAIT, return_when=asyncio.FIRST_COMPLETED)
+    if entered not in done:
+        entered.cancel()
+        raise AssertionError("the background job never reached its wording call")
+    return gate, job
+
+
 def switched_on(deps):
     return replace(deps, settings=deps.settings.model_copy(update={"prepared_replies": PreparedReplies(enabled=True)}))
 
@@ -126,8 +143,8 @@ async def test_a_prepared_reply_that_fails_the_check_is_not_stored(on, denial_ca
 
 
 async def test_a_message_during_preparation_is_answered_live(on, denial_case):
-    gate = on.wording.hold(); job = asyncio.create_task(prepare_ahead(on, denial_case)); await asyncio.sleep(0.05)
-    r = await asyncio.wait_for(say(on, denial_case, "when do I need to send it?", ASK_TIMING), timeout=2)
+    gate, job = await _held_job(on, denial_case)
+    r = await asyncio.wait_for(say(on, denial_case, "when do I need to send it?", ASK_TIMING), timeout=WAIT)
     assert r.inspector["reply_source"] == "live"; gate.set(); await job
 
 
@@ -182,14 +199,14 @@ async def test_a_different_person_reset_discards_prepared_replies(on, denial_cas
 
 
 async def test_a_focus_change_while_replies_are_worded_drops_them(on, denial_case):
-    gate = on.wording.hold(); job = asyncio.create_task(prepare_ahead(on, denial_case)); await asyncio.sleep(0.05)
-    await asyncio.wait_for(say(on, denial_case, "and my auto claim?", make_form(answer_wanted="something_else", mentions_claim=True, claim_types={"auto": 0.95}, search_relation="new_search", how_many="one")), timeout=2)
+    gate, job = await _held_job(on, denial_case)
+    await asyncio.wait_for(say(on, denial_case, "and my auto claim?", make_form(answer_wanted="something_else", mentions_claim=True, claim_types={"auto": 0.95}, search_relation="new_search", how_many="one")), timeout=WAIT)
     gate.set()
     assert await job == 0 and await prepared_rows(on, denial_case) == 0
 
 
 async def test_a_customer_cleared_while_replies_are_worded_gets_none_stored(on, denial_case, loader_conn):
-    gate = on.wording.hold(); job = asyncio.create_task(prepare_ahead(on, denial_case)); await asyncio.sleep(0.05)
+    gate, job = await _held_job(on, denial_case)
     async with on.db.conversation(denial_case) as c:
         await c.execute("SELECT clear_verified(%s)", [denial_case])
     gate.set()

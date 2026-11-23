@@ -92,6 +92,27 @@ def _unsure_field(node, t: Thresholds) -> bool:
     return False
 
 
+# A call's counts under the names Braintrust shows in its token columns.
+_METRIC_NAMES = {"input_tokens": "prompt_tokens", "output_tokens": "completion_tokens", "total_tokens": "tokens",
+                 "cached_tokens": "prompt_cached_tokens", "reasoning_tokens": "completion_reasoning_tokens"}
+
+
+def token_metrics(call: dict) -> dict[str, int]:
+    """One model call's token counts as span metrics (zero counts left out). Never raises."""
+    try:
+        return {name: int(call[key]) for key, name in _METRIC_NAMES.items() if call.get(key)}
+    except Exception:
+        return {}
+
+
+def model_calls(record: dict) -> list[dict]:
+    """The model calls listed in a turn record's usage, or none. Never raises."""
+    try:
+        return [c for c in (record.get("usage") or {}).get("calls") or [] if isinstance(c, dict)]
+    except Exception:
+        return []
+
+
 def trace_event(*, message: str, reply: str, record: dict, tags: Sequence[str] = (), conversation_id: str | None = None,
                 turn_no: int | None = None) -> dict:
     """What is logged for a turn, already masked: the message as input, the reply as output, the record as metadata."""
@@ -138,11 +159,35 @@ class BraintrustLog:
             return
         with self._lock:
             began, conversation_id, turn_no = self._open.pop(span_id, (None, None, None))
-        span = self._logger.start_span(name="turn", type="task", id=span_id, start_time=began)
-        span.log(**trace_event(message=message, reply=reply, record=record, tags=tags,
-                               conversation_id=conversation_id, turn_no=turn_no))
-        span.end()
+        from claims_agent.observability.turn_spans import turn_spans  # late: that module imports this one
+        descs = turn_spans(message=message, reply=reply, record=record, tags=tags, conversation_id=conversation_id,
+                           turn_no=turn_no, started=began)
+        root = descs[0]
+        span = self._logger.start_span(name=root.name, type=root.type, id=span_id, start_time=root.start)
+        try:
+            span.log(**self._event(root))
+            for step in descs[1:]:
+                self._send_step(span, step)
+        finally:
+            span.end()
         threading.Thread(target=self._flush, daemon=True, name="braintrust-flush").start()
+
+    @staticmethod
+    def _event(desc) -> dict:
+        """The fields of a span description that are set, as the keyword arguments of the SDK's `log`."""
+        event = {"input": desc.input, "output": desc.output, "metadata": desc.metadata or None,
+                 "metrics": desc.metrics or None, "scores": desc.scores or None, "tags": desc.tags or None}
+        return {k: v for k, v in event.items() if v is not None}
+
+    def _send_step(self, span, desc) -> None:
+        """One step as a child span of the turn. A step that fails to send is skipped; the others are still sent.
+        Token metrics are only ever on the model-call steps, because Braintrust adds metrics up over a trace."""
+        try:
+            child = span.start_span(name=desc.name, type=desc.type, start_time=desc.start)
+            child.log(**self._event(desc))
+            child.end(end_time=desc.end)
+        except Exception as e:
+            _report(e)
 
     def feedback(self, span_id: str | None, *, rating: int, comment: str | None) -> None:
         if span_id is None:

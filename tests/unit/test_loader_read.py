@@ -2,7 +2,7 @@ import shutil
 from collections import Counter
 from decimal import Decimal
 
-from claims_agent.loader.read import MAX_ID_CHARS, MAX_TEXT_CHARS, read_folder
+from claims_agent.loader.read import FILES, MAX_ID_CHARS, MAX_TEXT_CHARS, read_folder
 from claims_agent.settings import ROOT
 
 STARTER = ROOT / "data" / "starter"
@@ -31,7 +31,7 @@ def copy_starter_without(tmp_path, name):
 
 def test_starter_loads_clean():
     r = read_folder(STARTER)
-    assert (len(r.customers), len(r.claims), len(r.representatives), len(r.report)) == (4, 5, 1, 0)
+    assert (len(r.customers), len(r.claims), len(r.representatives), len(r.report)) == (9, 13, 2, 0)
     topics = [f.topic for f in r.followups if f.topic != "fallback"]
     assert topics == ["missing_required_material_alternatives", "submission_timing", "processing_time_after_submission",
                       "submission_method", "file_format_requirements", "receipt_confirmation"]
@@ -50,11 +50,11 @@ def test_money_becomes_exact_decimals():
 def test_vocabulary_comes_from_the_data():
     v = read_folder(STARTER).vocabulary
     assert v["case_type"] == {"healthcare", "dental", "auto"} and v["status"] == {"denied", "closed", "open"}
-    assert v["relationship"] == {"son"}
+    assert v["relationship"] == {"son", "spouse"}
     assert v["need"] == {"document_submission", "next_steps", "denial_question", "general_claim_question", "status_inquiry"}
 
 
-def test_d5_bad_rows_are_set_aside_and_bad_fields_emptied():
+def test_bad_rows_are_set_aside_and_bad_fields_emptied():
     r = read_folder(BAD)
     assert Counter(e.level for e in r.report) == {"row": 6, "field": 7, "followup": 1}
     b3 = customer(r, "B3")
@@ -64,7 +64,7 @@ def test_d5_bad_rows_are_set_aside_and_bad_fields_emptied():
     assert [c.case_id for c in r.claims].count("CL-2048") == 1
 
 
-def test_x13_unknown_blank_disables_only_that_followup():
+def test_unknown_blank_disables_only_that_followup():
     r = read_folder(BAD)
     by = {f.topic: f.enabled for f in r.followups}
     assert by["bad_blank"] is False and by["submission_timing"] is True
@@ -80,7 +80,7 @@ def test_missing_file_is_reported_not_fatal(tmp_path):
     assert r.representatives == [] and [(e.level, e.file) for e in r.report] == [("file", "representatives.json")]
 
 
-def test_d6_new_shape_needs_no_code_change():
+def test_new_shape_needs_no_code_change():
     r = read_folder(NEW_SHAPE)
     assert r.vocabulary["case_type"] == {"travel"} and r.vocabulary["status"] == {"under_review"}
     assert [c.case_id for c in r.claims] == ["TRV/77-A"]
@@ -116,7 +116,7 @@ def _personal_values():
     return out
 
 
-def test_f1_f2_no_report_entry_carries_a_personal_value():
+def test_no_report_entry_carries_a_personal_value():
     r = read_folder(HOSTILE)
     assert r.report
     text = "\n".join(f"{e.file}|{e.ref}|{e.field}|{e.reason}" for e in r.report)
@@ -125,14 +125,14 @@ def test_f1_f2_no_report_entry_carries_a_personal_value():
     assert "Secretname" not in text and "SECRET" not in text.upper().replace("SECRETNAME", "")
 
 
-def test_f3_only_plain_allowed_blanks_enable_a_followup():
+def test_only_plain_allowed_blanks_enable_a_followup():
     r = read_folder(HOSTILE)
     by = {f.topic: f.enabled for f in r.followups}
     assert [by[t] for t in BLANK_TOPICS] == [False] * 9 and by["submission_timing"] is True
     assert Counter(e.level for e in r.report if e.reason.endswith("follow-up disabled")) == {"followup": 9}
 
 
-def test_f4_hostile_json_is_an_unreadable_file_not_a_crash(tmp_path):
+def test_hostile_json_is_an_unreadable_file_not_a_crash(tmp_path):
     for name, content in [("consent_scenarios.json", "[" * 200_000), ("representatives.json", "x" * 6_000_000)]:
         folder = tmp_path / name
         shutil.copytree(STARTER, folder)
@@ -141,7 +141,7 @@ def test_f4_hostile_json_is_an_unreadable_file_not_a_crash(tmp_path):
         assert [(e.level, e.file) for e in r.report] == [("file", name)]
 
 
-def test_f4_a_thousand_claims_pass_the_size_cap(tmp_path):
+def test_a_thousand_claims_pass_the_size_cap(tmp_path):
     import json
     shutil.copytree(STARTER, tmp_path / "d")
     claims = [{"case_id": f"X-{i}", "party_id": "P9", "case_type": "auto", "status": "open",
@@ -151,7 +151,7 @@ def test_f4_a_thousand_claims_pass_the_size_cap(tmp_path):
     assert len(r.claims) == 1000 and r.report == []
 
 
-def test_f5_text_the_database_cannot_store_is_set_aside_or_emptied():
+def test_text_the_database_cannot_store_is_set_aside_or_emptied():
     r = read_folder(HOSTILE)
     ids = {c.party_id for c in r.customers}
     assert {"H1", "H4"} <= ids and not ({"H2", "H3"} & ids) and not any("\x00" in p for p in ids)
@@ -174,20 +174,20 @@ def _all_text(r):
         yield from vs
 
 
-def test_f6_phone_separators_are_stripped_to_one_form():
+def test_phone_separators_are_stripped_to_one_form():
     r = read_folder(HOSTILE)
     assert customer(r, "H1").phone == "+16505212836"
     assert [a.value for a in r.aliases if a.party_id == "H1" and a.kind == "phone"] == ["6505212830"]
     assert customer(read_folder(STARTER), "P9").phone == "+16505212836"
 
 
-def test_f3_a_settings_key_is_a_blank_only_if_it_is_a_plain_identifier():
+def test_a_settings_key_is_a_blank_only_if_it_is_a_plain_identifier():
     r = read_folder(HOSTILE)
     stored = {g.key for g in r.guidance if g.kind == "claim_followup_settings"}
     assert stored == {"average_processing_time_after_submission", "human_review_after_document_alternatives_exhausted"}
 
 
-def test_f6_non_ascii_digits_are_emptied_and_reported():
+def test_non_ascii_digits_are_emptied_and_reported():
     r = read_folder(HOSTILE)
     h6 = customer(r, "H6")
     assert (h6.phone, h6.id_last4) == (None, None)
@@ -251,12 +251,12 @@ def _bad_anywhere(r):
     return any(a is not None and not a.is_finite() for a in amounts)
 
 
-def test_f5_one_gate_no_unstorable_value_reaches_a_row_wherever_it_is_planted(tmp_path):
+def test_one_gate_no_unstorable_value_reaches_a_row_wherever_it_is_planted(tmp_path):
     import json
     folder = tmp_path / "d"
     shutil.copytree(STARTER, folder)
     planted = 0
-    for file in sorted(p.name for p in STARTER.glob("*.json")):
+    for file in sorted(p.name for p in STARTER.glob("*.json") if p.name in FILES):  # the loader reads only its own files
         original = json.loads((STARTER / file).read_text())
         for path, kind in list(_positions(original)):
             for label, bad in PLANTS.items():
@@ -274,13 +274,13 @@ def test_f5_one_gate_no_unstorable_value_reaches_a_row_wherever_it_is_planted(tm
     assert planted > 500
 
 
-def test_r3_a_gated_value_is_reported_in_its_own_words():
+def test_a_gated_value_is_reported_in_its_own_words():
     r = read_folder(HOSTILE)
     reasons = {e.reason for e in r.report if (e.ref, e.field) == ("H1", "id_type")}
     assert reasons == {"a value in this field cannot be stored (a character, number or length the database refuses)"}
 
 
-def test_r3_overlong_fields_follow_the_two_level_rule(tmp_path):
+def test_overlong_fields_follow_the_two_level_rule(tmp_path):
     import json
     shutil.copytree(STARTER, tmp_path / "d")
     folder = tmp_path / "d"
@@ -291,13 +291,13 @@ def test_r3_overlong_fields_follow_the_two_level_rule(tmp_path):
     claims.append({"case_id": "L-3", "party_id": "P9", "status": "open", "summary": "x" * MAX_TEXT_CHARS})
     (folder / "claims.json").write_text(json.dumps(claims))
     r = read_folder(folder)
-    assert {c.case_id for c in r.claims} == {"CL-2048", "CL-2011", "CL-1899", "CL-2102", "CL-3001", "L-2", "L-3"}
+    assert {c.case_id for c in r.claims} == {c["case_id"] for c in json.loads((STARTER / "claims.json").read_text())} | {"L-2", "L-3"}
     assert (claim(r, "L-2").case_type, claim(r, "L-2").summary) == (None, None)
     assert len(claim(r, "L-3").summary) == MAX_TEXT_CHARS
     assert Counter(e.level for e in r.report) == {"row": 1, "field": 2, "file": 1}  # the file entry is the gate removing the over-long summary
 
 
-def test_r3_a_rejected_settings_key_is_not_an_allowed_blank(tmp_path):
+def test_a_rejected_settings_key_is_not_an_allowed_blank(tmp_path):
     import json
     shutil.copytree(STARTER, tmp_path / "d")
     path = tmp_path / "d" / "required_document_guideline.json"
@@ -323,7 +323,7 @@ def _with_a_bad_first_row(folder):
     (folder / "required_document_guideline.json").write_text(json.dumps(g))
 
 
-def test_r4_every_row_carries_its_position_in_its_own_file(tmp_path):
+def test_every_row_carries_its_position_in_its_own_file(tmp_path):
     import json
     from claims_agent.loader import read
     from claims_agent.loader.read import Origin
@@ -367,7 +367,7 @@ def test_r4_every_row_carries_its_position_in_its_own_file(tmp_path):
             assert f.origin == Origin(read.GUIDANCE_FILE, "claim_followup_guidance", f"#{topics.index(f.topic) + 1}")
 
 
-def test_r4_a_reader_ref_is_the_position_in_the_file_not_a_count_of_accepted_rows(tmp_path):
+def test_a_reader_ref_is_the_position_in_the_file_not_a_count_of_accepted_rows(tmp_path):
     import json
     folder = tmp_path / "d"
     shutil.copytree(STARTER, folder)
@@ -423,7 +423,7 @@ def _deepest(r):
     return out
 
 
-def test_r5_a_deep_guidance_body_is_set_aside_and_reported(tmp_path):
+def test_a_deep_guidance_body_is_set_aside_and_reported(tmp_path):
     from claims_agent.loader.read import DEEP_REASON, MAX_DEPTH
     folder = _deep_folder(tmp_path, "required_document_guideline.json",
                           lambda g: g["case_type_guidance"].__setitem__("deep_entry", {"en": "__DEEP__"}))
@@ -435,12 +435,12 @@ def test_r5_a_deep_guidance_body_is_set_aside_and_reported(tmp_path):
     assert _deepest(r) <= MAX_DEPTH
 
 
-def test_r5_a_deep_claim_field_is_emptied_and_reported(tmp_path):
+def test_a_deep_claim_field_is_emptied_and_reported(tmp_path):
     from claims_agent.loader.read import DEEP_REASON, MAX_DEPTH
     folder = _deep_folder(tmp_path, "claims.json", lambda c: c[0].__setitem__("summary", "__DEEP__"))
     r = read_folder(folder)
     first = r.claims[0]
-    assert first.case_id == "CL-2048" and first.summary is None and len(r.claims) == 5
+    assert first.case_id == "CL-2048" and first.summary is None and len(r.claims) == 13
     assert ("field", "CL-2048", "summary", DEEP_REASON) in {(e.level, e.ref, e.field, e.reason) for e in r.report}
     assert _deepest(r) <= MAX_DEPTH
 
@@ -449,7 +449,7 @@ def _data_sets():
     return [STARTER, *sorted(p for p in (ROOT / "tests" / "data").iterdir() if p.is_dir())]
 
 
-def test_r5_nothing_leaves_the_reader_nested_deeper_than_the_cap():
+def test_nothing_leaves_the_reader_nested_deeper_than_the_cap():
     from claims_agent.loader.read import MAX_DEPTH
     sets = _data_sets()
     assert len(sets) >= 6
@@ -457,7 +457,7 @@ def test_r5_nothing_leaves_the_reader_nested_deeper_than_the_cap():
         assert _deepest(read_folder(folder)) <= MAX_DEPTH, folder.name
 
 
-def test_r5_a_position_is_counted_in_the_file_before_anything_is_dropped(tmp_path):
+def test_a_position_is_counted_in_the_file_before_anything_is_dropped(tmp_path):
     import json
     folder = tmp_path / "d"
     shutil.copytree(STARTER, folder)
@@ -480,7 +480,7 @@ def test_r5_a_position_is_counted_in_the_file_before_anything_is_dropped(tmp_pat
     assert glossary == {"net_pay": ("#2", "b"), "net_fee": ("#3", "c")}
 
 
-def test_r5_a_glossary_key_is_capped_like_every_other_key(tmp_path):
+def test_a_glossary_key_is_capped_like_every_other_key(tmp_path):
     import json
     folder = tmp_path / "d"
     shutil.copytree(STARTER, folder)

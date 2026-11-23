@@ -1,4 +1,8 @@
-# Placeholders until calibrated.
+# Starting values, chosen by hand: none of them is a fitted value. They were checked against recorded readings of the
+# fast model (evals/probabilities.jsonl; scripts/calibrate_thresholds.py --fit): at these values `yes` misreads 1 of
+# 315 labelled yes/no readings and `pick_confident` 2 of 64 labelled picks, and the fit suggests 0.45 for both
+# (evals/thresholds.fitted.toml, not applied). send_email_min and prepared_reply_min have too few labelled cases to
+# fit (2 and 10); unsure_low and unsure_high are not fitted from labelled cases.
 yes = 0.5
 unsure_low = 0.35
 unsure_high = 0.65

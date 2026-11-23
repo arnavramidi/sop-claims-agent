@@ -22,7 +22,7 @@ async def test_written_guidance_and_vocabulary_are_readable_by_the_app(load_data
         assert (await (await c.execute("SELECT count(*) FROM load_report")).fetchone())[0] == 0
 
 
-async def test_d5_bad_data_loads_and_reports(load_dataset):
+async def test_bad_data_loads_and_reports(load_dataset):
     db = await load_dataset("bad_data")
     async with db.app.conversation(None) as c:
         assert (await (await c.execute("SELECT count(*) FROM load_report")).fetchone())[0] == 14
@@ -31,10 +31,10 @@ async def test_d5_bad_data_loads_and_reports(load_dataset):
 async def test_loading_twice_leaves_the_same_rows(load_dataset):
     db = await load_dataset("starter")
     await write(read_folder(ROOT / "data" / "starter"), db.loader_url)
-    assert await db.loader_count("claims") == 5
+    assert await db.loader_count("claims") == 13
 
 
-async def test_f1_f2_the_app_reads_no_personal_value_in_the_load_report(load_dataset):
+async def test_the_app_reads_no_personal_value_in_the_load_report(load_dataset):
     import json
     db = await load_dataset("hostile")
     async with db.app.conversation(None) as c:
@@ -50,7 +50,7 @@ async def test_f1_f2_the_app_reads_no_personal_value_in_the_load_report(load_dat
     assert "Secretname" not in text
 
 
-async def test_f5_unstorable_text_does_not_stop_the_load(load_dataset):
+async def test_unstorable_text_does_not_stop_the_load(load_dataset):
     db = await load_dataset("hostile")
     assert await db.loader_count("claims") == 6
     assert await db.loader_count("customers") == 7
@@ -61,7 +61,7 @@ async def _report(db):
         return await (await c.execute("SELECT level, file, ref, field, reason FROM load_report")).fetchall()
 
 
-async def test_r3_an_overlong_status_is_reported_and_the_rest_loads(load_dataset, tmp_path):
+async def test_an_overlong_status_is_reported_and_the_rest_loads(load_dataset, tmp_path):
     import hashlib
     import json
     import shutil
@@ -73,11 +73,11 @@ async def test_r3_an_overlong_status_is_reported_and_the_rest_loads(load_dataset
     (tmp_path / "d" / "claims.json").write_text(json.dumps(claims))
     result = read_folder(tmp_path / "d")
     await write(result, db.loader_url)
-    assert await db.loader_count("claims") == 5 and await db.loader_count("customers") == 4
+    assert await db.loader_count("claims") == 13 and await db.loader_count("customers") == 9
     assert [r[0] for r in await _report(db)] == ["row"]
 
 
-async def test_r3_the_writer_sets_aside_a_row_the_database_refuses(load_dataset):
+async def test_the_writer_sets_aside_a_row_the_database_refuses(load_dataset):
     import base64
     import random
     db = await load_dataset("starter")
@@ -96,9 +96,9 @@ async def test_r3_the_writer_sets_aside_a_row_the_database_refuses(load_dataset)
     r.documents.append(DocumentRow("ZC-2", "Z3", 1, "doc of a refused claim"))
     r.documents.append(DocumentRow("ZC-3", "Z3", 1, "doc of a good claim"))
     await write(r, db.loader_url)
-    assert await db.loader_count("customers") == 5 and await db.loader_count("customer_aliases") == 4
-    assert await db.loader_count("claims") == 6
-    assert await db.loader_count("claim_documents") == 4
+    assert await db.loader_count("customers") == 10 and await db.loader_count("customer_aliases") == 4
+    assert await db.loader_count("claims") == 14
+    assert await db.loader_count("claim_documents") == 10
     rows = await _report(db)
     assert len(rows) == 6   # two customers, one alias, two claims, one document
     assert {r[4] for r in rows} == {"the database could not store this row"}
@@ -106,7 +106,7 @@ async def test_r3_the_writer_sets_aside_a_row_the_database_refuses(load_dataset)
     assert "Nul" not in text and noise[:50] not in text and "alias of" not in text
 
 
-async def test_r3_a_thousand_rows_through_the_savepoint_path_are_fast(load_dataset):
+async def test_a_thousand_rows_through_the_savepoint_path_are_fast(load_dataset):
     import time
     db = await load_dataset("starter")
     r = read_folder(ROOT / "data" / "starter")
@@ -114,7 +114,7 @@ async def test_r3_a_thousand_rows_through_the_savepoint_path_are_fast(load_datas
     started = time.monotonic()
     await write(r, db.loader_url)
     assert time.monotonic() - started < 10
-    assert await db.loader_count("claims") == 1005
+    assert await db.loader_count("claims") == 1013
 
 
 async def _select(db, query):
@@ -144,11 +144,11 @@ async def _assert_derived_from_stored(db):
 
 
 @pytest.mark.parametrize("name", ["starter", "bad_data", "hostile", "new_shape"])
-async def test_r4_everything_derived_comes_from_the_rows_stored(load_dataset, name):
+async def test_everything_derived_comes_from_the_rows_stored(load_dataset, name):
     await _assert_derived_from_stored(await load_dataset(name))
 
 
-async def test_r4_a_followup_whose_setting_row_was_refused_is_disabled(load_dataset):
+async def test_a_followup_whose_setting_row_was_refused_is_disabled(load_dataset):
     """Built by hand: the reader would never pass on a settings row the database refuses."""
     db = await load_dataset("starter")
     r = read_folder(STARTER)
@@ -165,7 +165,7 @@ async def test_r4_a_followup_whose_setting_row_was_refused_is_disabled(load_data
     await _assert_derived_from_stored(db)
 
 
-async def test_r4_vocabulary_holds_no_value_that_came_only_from_a_refused_row(load_dataset):
+async def test_vocabulary_holds_no_value_that_came_only_from_a_refused_row(load_dataset):
     """Built by hand: a claim, a representative and a follow-up that the database refuses each carry a
     vocabulary value no stored row has, and the reader's vocabulary also holds a value from no row at all."""
     db = await load_dataset("starter")
@@ -187,7 +187,7 @@ async def test_r4_vocabulary_holds_no_value_that_came_only_from_a_refused_row(lo
 
 
 @pytest.mark.parametrize("failure", ["connection_terminated", "operational_error", "statement_timeout"])
-async def test_r4_a_failure_that_is_not_about_the_row_aborts_the_whole_load(load_dataset, monkeypatch, failure):
+async def test_a_failure_that_is_not_about_the_row_aborts_the_whole_load(load_dataset, monkeypatch, failure):
     """A lost connection, a timeout or any other operational failure during one insert says nothing about
     the row: the load raises and the data loaded before stays in place (the load is one transaction)."""
     db = await load_dataset("starter")
@@ -213,10 +213,10 @@ async def test_r4_a_failure_that_is_not_about_the_row_aborts_the_whole_load(load
     monkeypatch.undo()
     assert fired
     assert (await db.loader_count("claims"), await db.loader_count("customers"), await db.loader_count("load_report")) \
-        == (5, 4, 0)
+        == (13, 9, 0)
 
 
-async def test_r4_a_refused_row_is_reported_by_its_position_in_its_own_file(load_dataset, tmp_path):
+async def test_a_refused_row_is_reported_by_its_position_in_its_own_file(load_dataset, tmp_path):
     import json
     import shutil
     db = await load_dataset("starter")
@@ -278,7 +278,7 @@ async def test_r4_a_refused_row_is_reported_by_its_position_in_its_own_file(load
     assert Counter((f, ref, fld) for _, f, ref, fld, _ in rows) == expected
 
 
-async def test_r4_a_report_entry_the_database_refuses_leaves_a_fixed_entry(load_dataset):
+async def test_a_report_entry_the_database_refuses_leaves_a_fixed_entry(load_dataset):
     db = await load_dataset("starter")
     r = read_folder(STARTER)
     r.report += [ReportEntry("field", read.CLAIMS_FILE, "CL-2048", "summary", "a reason with a nul\x00"),

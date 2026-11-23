@@ -1,3 +1,4 @@
+from collections.abc import Sequence
 from dataclasses import dataclass
 from typing import Protocol
 
@@ -15,7 +16,8 @@ class FormFiller(Protocol):
 
 class Extractor(Protocol):
     async def extract(self, message: str, *, want_identity: bool, want_claim_number: bool,
-                      want_parts: bool = False) -> StatedValues: ...
+                      want_parts: bool = False, previous_reply: str | None = None,
+                      just_asked: str | None = None, asked_for: Sequence[str] = ()) -> StatedValues: ...
 
 
 @dataclass(frozen=True)
@@ -24,6 +26,9 @@ class ExtractRequest:
     want_identity: bool
     want_claim_number: bool
     want_parts: bool = False
+    previous_reply: str | None = None  # the context the extractor was given (data, never a source of values)
+    just_asked: str | None = None
+    asked_for: tuple[str, ...] = ()  # the details the agent's last reply asked for, as their labels
 
 
 class _Scripted:
@@ -81,6 +86,8 @@ class ScriptedExtractor(_Scripted):
         self.requests: list[ExtractRequest] = []
 
     async def extract(self, message: str, *, want_identity: bool, want_claim_number: bool,
-                      want_parts: bool = False) -> StatedValues:
-        self.requests.append(ExtractRequest(message, want_identity, want_claim_number, want_parts))
+                      want_parts: bool = False, previous_reply: str | None = None,
+                      just_asked: str | None = None, asked_for: Sequence[str] = ()) -> StatedValues:
+        self.requests.append(ExtractRequest(message, want_identity, want_claim_number, want_parts, previous_reply,
+                                            just_asked, tuple(asked_for)))
         return self._next()

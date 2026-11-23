@@ -7,8 +7,6 @@ threshold together, the likeliest of them is taken. Reading an upset caller as c
 needed; reading a calm one as upset costs one kind sentence.
 """
 
-from collections.abc import Sequence
-
 from claims_agent.form.fields import Pick
 from claims_agent.form.read import picked
 from claims_agent.settings import Thresholds
@@ -29,21 +27,11 @@ def caller_mood(f: Pick, t: Thresholds) -> str | None:
     return None
 
 
-def frustrated_again(moods: Sequence[str], progressed: bool) -> bool:
-    """The caller sounded upset or angry on this turn and on the one before, and this turn moved nothing forward:
-    asking again is not working, so a person is offered as the other way on. The caller may still carry on here."""
-    return not progressed and len(moods) >= 2 and moods[-1] in FRUSTRATED and moods[-2] in FRUSTRATED
-
-
-# How many upset turns that move nothing forward the caller is asked through before a person is offered.
-UPSET_TURNS_BEFORE_OFFER = 2
-
-
-def upset_unmoved(count: int, mood: str | None, moved: bool) -> tuple[int, bool]:
+def upset_unmoved(count: int, mood: str | None, moved: bool, limit: int) -> tuple[int, bool]:
     """Count the upset or angry turns that moved nothing forward (gave no detail, got no answer), consecutive or not;
-    at the second, offer a person and start the count again. A turn that moved things on does not count. Returns
-    (the new count, whether to offer a person now)."""
+    at the `limit`-th (limits.upset_turns_before_offer), offer a person and start the count again. A turn that moved
+    things on does not count. Returns (the new count, whether to offer a person now)."""
     if moved or mood not in FRUSTRATED:
         return count, False
     count += 1
-    return (0, True) if count >= UPSET_TURNS_BEFORE_OFFER else (count, False)
+    return (0, True) if count >= limit else (count, False)

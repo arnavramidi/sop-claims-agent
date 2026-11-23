@@ -11,9 +11,12 @@
 <div id="banner" class="banner" role="alert" hidden></div>
 <p id="needs-script" class="banner">This page needs its script to run. It did not load, so nothing can be sent. Reload the page, or check that the server is running.</p>
 <noscript><p class="banner">This page needs JavaScript to run. Turn it on, then reload.</p></noscript>
-<main class="layout">
+<main id="layout" class="layout">
   <section class="chat" aria-label="Conversation">
-    <h1>Claims agent</h1>
+    <div class="chat-head">
+      <h1>Claims agent</h1>
+      <button type="button" id="start-over" class="plain">New conversation</button>
+    </div>
     <div id="transcript" class="transcript" role="log" aria-live="polite" aria-label="Transcript"></div>
     <div id="ended" class="ended">
       <p id="ended-text" role="status"></p>
@@ -31,16 +34,25 @@
         <button type="submit" id="send">Send</button>
       </div>
     </form>
+    <details id="sample-callers" class="static" hidden>
+      <summary>Sample callers (invented sample data, for testing)</summary>
+      <p class="muted">Made-up people. A message button fills the box above; nothing is sent until you press Send. The agent's date is fixed, so deadlines count from it.</p>
+      <div id="sample-callers-list" class="callers"></div>
+    </details>
   </section>
-  <aside class="inspector" aria-label="Operator view">
-    <h2>Operator view: a caller would never see this panel</h2>
-    <p class="muted">What the code and each model decided on the latest turn. Pick a turn to inspect it.</p>
+  <aside id="operator-view" class="inspector" aria-label="Operator view">
+    <div class="op-head">
+      <h2>Operator view: a caller would never see this panel</h2>
+      <button type="button" id="widen" class="plain widen" aria-pressed="false">Widen panel</button>
+    </div>
+    <p class="muted">Each turn, in the order things happened: the calls code made, what was pulled out of the message, the form the fast model answered, what code decided, the reply, and what the agent remembers. The newest turn is shown; pick another to inspect it.</p>
     <ul class="legend" aria-label="Who decided">
       <li><span class="tag tag-code">Code</span></li>
       <li><span class="tag tag-fast">Fast model</span></li>
       <li><span class="tag tag-text">Text model</span></li>
       <li><span class="tag tag-large">Larger model</span></li>
     </ul>
+    <details class="static controls-box"><summary>Controls: consent script and today's date</summary>
     <fieldset class="controls">
       <legend>Controls</legend>
       <p id="controls-note" class="muted">Current settings: unknown</p>
@@ -51,7 +63,8 @@
       <input id="today" type="date">
       <button type="button" id="apply-controls">Apply</button>
     </fieldset>
-    <div id="turn-picker" class="turn-picker"></div>
+    </details>
+    <div id="turn-picker" class="turn-picker" role="group" aria-label="Turns"></div>
     <div id="inspector-body"></div>
     <details class="static"><summary>Load report</summary><div id="load-report"></div></details>
     <details class="static"><summary>Simulated outbox</summary><div id="outbox"></div></details>

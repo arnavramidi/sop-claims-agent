@@ -29,7 +29,7 @@ async def compose(brief: ReplyBrief, wording: Wording, s: Settings, data_statuse
 
     def check(text: str) -> CheckResult:
         return check_reply(text, brief, wary_status_words=rc.wary_status_words, data_statuses=data_statuses,
-                           status_forms=rc.status_forms, max_length=rc.max_length)
+                           status_forms=rc.status_forms, max_length=rc.max_length, polarity_forms=rc.polarity_forms)
 
     def plain(source: Literal["template", "fixed"], earlier: tuple[CheckResult, ...]) -> Composed:
         text = brief.plain_text()

@@ -11,10 +11,15 @@ How a value is chosen: of the candidates 0.05, 0.10, ... 0.95, the one with the 
 cases wins, and a tie goes to the more cautious (higher) value. send_email_min and prepared_reply_min may not let a
 single labelled "no" through. A threshold with fewer than 20 labelled cases keeps its current value, and says so.
 
-Which reading feeds which threshold: claim-filter yes/no questions (claim type, status, month, year) feed
-filter_include_min; every other yes/no question feeds yes; every pick feeds pick_confident (right when it picked the
-labelled option); email_offer_reply also feeds send_email_min (a "send" reading at its confidence); answer_wanted in a
-case labelled calm with a single question also feeds prepared_reply_min.
+The thresholds fitted are the ones thresholds.toml has (the Thresholds model's fields) that some labelled reading
+feeds; a reading that would feed a threshold the file does not have is an error, never silently dropped.
+
+Which reading feeds which threshold: a yes/no question feeds yes; every pick feeds pick_confident (right when it
+picked the labelled option); email_offer_reply also feeds send_email_min (a "send" reading at its confidence);
+answer_wanted in a case labelled calm with a single question also feeds prepared_reply_min. Claim-filter yes/no
+questions (claim type, status, month, year) feed nothing: a filter value counts only at the top of the unsure band
+(unsure_high), which every reading that ends, resets or hands over the conversation shares, so one kind of question
+cannot fit it. unsure_low and unsure_high are not fitted.
 
 Run:  docker compose --profile test run --rm tests python scripts/calibrate_thresholds.py --record
 """
@@ -42,7 +47,6 @@ PROBABILITIES = ROOT / "evals" / "probabilities.jsonl"
 FITTED = ROOT / "evals" / "thresholds.fitted.toml"
 THRESHOLDS = ROOT / "thresholds.toml"
 
-FITTED_NAMES = ("yes", "pick_confident", "filter_include_min", "send_email_min", "prepared_reply_min")
 NO_FALSE_YES = ("send_email_min", "prepared_reply_min")
 FILTER_GROUPS = ("claim_type", "claim_status", "month", "year")
 MINIMUM_CASES = 20
@@ -94,8 +98,7 @@ def labelled_from(line: Mapping) -> list[Labelled]:
     field, expected, p, value = line["field"], line["expected"], line.get("p"), line.get("value")
     p = 0.0 if p is None else float(p)  # a refused yes/no reads as no in the app
     if isinstance(expected, bool):
-        threshold = "filter_include_min" if field.split(":", 1)[0] in FILTER_GROUPS else "yes"
-        return [Labelled(threshold, p, expected)]
+        return [] if field.split(":", 1)[0] in FILTER_GROUPS else [Labelled("yes", p, expected)]
     out = [Labelled("pick_confident", p, value == expected)]
     if field == "email_offer_reply":
         out.append(Labelled("send_email_min", p if value == "send" else 0.0, expected == "send"))
@@ -214,25 +217,31 @@ def fitted_toml(current: Thresholds, fitted: Mapping[str, tuple[float, str]], *,
         if name in fitted:
             value, why = fitted[name]
         else:
-            why = f"kept {value}: not fitted from labelled cases (only {', '.join(FITTED_NAMES)} are)"
+            why = f"kept {value}: no labelled reading feeds it"
         lines += [f"# {why}", f"{name} = {value}"]
     return "\n".join(lines) + "\n"
 
 
-def fit() -> int:
-    if not PROBABILITIES.exists():
-        print(f"{PROBABILITIES.relative_to(ROOT)} does not exist: run --record first")
+def _shown(path: Path) -> str:
+    return str(path.relative_to(ROOT)) if path.is_relative_to(ROOT) else str(path)
+
+
+def fit(probabilities: Path = PROBABILITIES, fitted_file: Path = FITTED) -> int:
+    if not probabilities.exists():
+        print(f"{_shown(probabilities)} does not exist: run --record first")
         return 1
-    readings = [json.loads(line) for line in PROBABILITIES.read_text(encoding="utf-8").splitlines() if line.strip()]
-    by_threshold: dict[str, list[Labelled]] = {name: [] for name in FITTED_NAMES}
+    readings = [json.loads(line) for line in probabilities.read_text(encoding="utf-8").splitlines() if line.strip()]
+    by_threshold: dict[str, list[Labelled]] = {name: [] for name in Thresholds.model_fields}
     for line in readings:
         for case in labelled_from(line):
+            if case.threshold not in by_threshold:
+                raise ValueError(f"a reading of {line['field']} feeds {case.threshold}, which thresholds.toml lacks")
             by_threshold[case.threshold].append(case)
     current = load_thresholds()
     fitted = {name: sweep(cases, current=getattr(current, name), forbid_false_yes=name in NO_FALSE_YES)
-              for name, cases in by_threshold.items()}
-    FITTED.write_text(fitted_toml(current, fitted, source=str(PROBABILITIES.relative_to(ROOT))), encoding="utf-8")
-    print(f"wrote {FITTED.relative_to(ROOT)} (thresholds.toml is unchanged; --apply copies it over)\n")
+              for name, cases in by_threshold.items() if cases}
+    fitted_file.write_text(fitted_toml(current, fitted, source=_shown(probabilities)), encoding="utf-8")
+    print(f"wrote {_shown(fitted_file)} (thresholds.toml is unchanged; --apply copies it over)\n")
     print("| threshold | current | fitted | labelled cases | wrong at current | wrong at fitted | how |")
     print("|---|---|---|---|---|---|---|")
     for name in Thresholds.model_fields:

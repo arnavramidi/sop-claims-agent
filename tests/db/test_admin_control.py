@@ -42,7 +42,7 @@ def client(api_db, scripted, monkeypatch):
 
 @pytest.fixture
 def admin_client(api_db, scripted):
-    c, deps = make_client(api_db, scripted, api_db.loader_url)
+    c, deps = make_client(api_db, scripted, api_db.demo_url)
     with c:
         yield c
         c.portal.call(deps.db.close)
@@ -142,3 +142,42 @@ async def test_the_apps_own_account_still_cannot_write_a_claim(api_db, admin_cli
             with pytest.raises(psycopg.errors.InsufficientPrivilege):
                 await conn.execute(statement)
             await conn.rollback()
+
+
+# ---- the demo account writes nothing else ---------------------------------------------------------------------
+
+async def _as_demo(api_db, conversation_id, statement, params=()):
+    async with await psycopg.AsyncConnection.connect(api_db.demo_url) as conn:
+        if conversation_id is not None:
+            await conn.execute("SELECT set_config('app.conversation_id', %s, true)", [str(conversation_id)])
+        cur = await conn.execute(statement, params)
+        return cur.rowcount if cur.description is None else await cur.fetchall()
+
+
+async def test_the_demo_account_reads_no_claim_detail_and_no_customer(api_db):
+    for statement in ("SELECT summary FROM claims", "SELECT denial_reason FROM claims", "SELECT net_pay FROM claims",
+                      "SELECT name FROM claim_documents", "SELECT * FROM customers", "SELECT * FROM turns",
+                      "SELECT memory FROM conversations", "SELECT * FROM outbox", "SELECT * FROM guidance"):
+        with pytest.raises(psycopg.errors.InsufficientPrivilege):
+            await _as_demo(api_db, None, statement)
+
+
+async def test_the_demo_account_changes_only_the_two_columns_and_documents(api_db):
+    for statement in ("UPDATE claims SET net_pay = 1", "UPDATE claims SET party_id = 'P7'", "DELETE FROM claims",
+                      "INSERT INTO claims (case_id, party_id, status) VALUES ('CL-9', 'P9', 'open')",
+                      "UPDATE claim_documents SET name = 'x'", "UPDATE conversations SET verified_party_id = 'P9'"):
+        with pytest.raises(psycopg.errors.InsufficientPrivilege):
+            await _as_demo(api_db, None, statement)
+
+
+async def test_the_demo_account_reaches_only_the_bound_conversations_customer(admin_client, scripted, api_db):
+    cid = verified_in_case(admin_client, scripted)  # verified as P9
+    assert await _as_demo(api_db, None, "UPDATE claims SET status = 'open'") == 0
+    assert await _as_demo(api_db, cid, "UPDATE claims SET status = 'open' WHERE party_id <> 'P9'") == 0
+    with psycopg.connect(api_db.loader_url) as conn:
+        other = conn.execute("SELECT case_id FROM claims WHERE party_id <> 'P9' LIMIT 1").fetchone()[0]
+    with pytest.raises(psycopg.errors.InsufficientPrivilege):
+        await _as_demo(api_db, cid, "INSERT INTO claim_documents (case_id, party_id, position, name) "
+                                    "VALUES (%s, 'P7', 9, 'x')", [other])
+    assert await _as_demo(api_db, cid, "DELETE FROM claim_documents WHERE party_id <> 'P9'") == 0
+    assert await _as_demo(api_db, cid, "UPDATE claims SET status = 'open' WHERE party_id = 'P9'") > 0

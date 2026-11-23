@@ -102,7 +102,7 @@ async def test_controls_and_escalations(test_db):
         await add_escalation(c, cid, 3, "handover", "three wrong values", {"count": 3})
     conv, _ = await load(test_db, cid)
     assert conv.consent_script == "strict" and conv.today == date(2026, 5, 1)
-    async with test_db.app.conversation(None) as c:
+    async with test_db.app.conversation(cid) as c:
         row = await (await c.execute("SELECT turn_no, kind, reason, note FROM escalations WHERE conversation_id = %s", [cid])).fetchone()
     assert row == (3, "handover", "three wrong values", {"count": 3})
 

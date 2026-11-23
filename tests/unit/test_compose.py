@@ -71,7 +71,9 @@ def test_every_instruction_key_the_plans_use_exists():
     consent_requested consent_pending consent_denied not_listed no_claims_on_file claim_not_on_policy which_claim
     nearest_matches overview narrow_down ask_need ask_which_answer ask_which_document ask_which_figure answer not_on_file offer_followup anything_else
     offer_email email_sent email_skipped email_contents email_address_not_read_out different_address_not_possible
-    goodbye model_trouble offer_person_in_language found_claim more_questions_later ask_same_policyholder""".split()
+    goodbye model_trouble offer_person_in_language found_claim more_questions_later ask_same_policyholder
+    email_already_sent email_at_wrap_up
+    acknowledge_refusal ask_caller_name offer_person_before_closing unreadable_detail ask_which_of_these""".split()
     assert set(keys) == set(INSTRUCTIONS) and all(INSTRUCTIONS[k].strip() for k in keys)
     assert MISSING == ("addresses", "links", "receipt status", "appeal steps", "amounts owed")
 

@@ -8,9 +8,11 @@ three accounts' passwords. From those, `setup` builds the loader's address and `
 (claims_app): the same host, port and database, another account. Each address is built with psycopg's own quoting,
 so a generated password with any character in it is passed exactly.
 
-On such a service the setup step and the server share one environment. So `serve` removes everything the server must
-not hold (the administrative address, the loader's and the owner's passwords, a claim-change address) from its own
-environment before it starts: the server runs with its own account only, as it does under Docker Compose.
+On such a service the setup step and the server share one environment. So `serve` starts the server as a fresh
+program (the same process, replaced) given only the environment it may hold: the administrative address, the loader's,
+owner's and demo account's passwords and a claim-change address are not in it, nor anywhere the server process can
+read back (a process's original environment stays readable for its whole life, so clearing it in place is not
+enough). The server runs with its own account only, as it does under Docker Compose.
 """
 
 import os
@@ -23,7 +25,7 @@ from claims_agent import hosted
 
 # What only the setup step may hold; the server never sees these.
 SETUP_ONLY = ("SUPERUSER_DATABASE_URL", "LOADER_DATABASE_URL", "OWNER_PASSWORD", "LOADER_PASSWORD",
-              "ADMIN_DATABASE_URL")
+              "DEMO_PASSWORD", "ADMIN_DATABASE_URL")
 
 
 def account_address(environ: Mapping[str, str], user: str, password_variable: str) -> str:
@@ -50,6 +52,12 @@ def serve_environment(environ: Mapping[str, str]) -> dict[str, str]:
     return out
 
 
+def serve_command(environ: Mapping[str, str]) -> list[str]:
+    """The server's command line (the program and its arguments), run with exactly `environ`."""
+    return [sys.executable, "-m", "uvicorn", "claims_agent.api:create_app", "--factory", "--host", "0.0.0.0",
+            "--port", str(int(environ.get("PORT") or 8000))]
+
+
 def _replace_environment(new: Mapping[str, str]) -> None:
     os.environ.clear()
     os.environ.update(new)
@@ -65,10 +73,8 @@ def main(argv: list[str]) -> None:
         _replace_environment(setup_environment(os.environ))
         setup.main()
     elif command == "serve":
-        import uvicorn
-        _replace_environment(serve_environment(os.environ))
-        uvicorn.run("claims_agent.api:create_app", factory=True, host="0.0.0.0",
-                    port=int(os.environ.get("PORT") or 8000))
+        environment = serve_environment(os.environ)
+        os.execve(sys.executable, serve_command(environment), environment)
     else:
         raise SystemExit("usage: python -m claims_agent.hosted_start setup|serve")
 

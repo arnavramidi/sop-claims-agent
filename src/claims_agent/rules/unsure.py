@@ -143,6 +143,8 @@ def record(ctx: "TurnContext", name: str, field: Pick, res: Resolved) -> None:
     t = ctx.deps.thresholds
     if picked(field, t) is not None:
         return
+    if ctx.settled is not None:  # the inspector shows, beside the question, how its answer was settled
+        ctx.settled[name] = {"value": res.value, "steps": list(res.steps), "larger": res.larger}
     went_to = "caller" if res.value is None else \
         "larger_model" if res.steps and res.steps[-1] == "larger" else (res.steps[-1] if res.steps else "taken")
     ctx.record("below_threshold", field=name, options=sorted(field.options), probabilities=dict(field.options),

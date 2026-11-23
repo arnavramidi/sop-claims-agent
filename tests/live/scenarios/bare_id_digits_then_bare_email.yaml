@@ -1,0 +1,16 @@
+id: bare_id_digits_then_bare_email
+about: Four bare digits after the ID was among the details asked for, then a bare email address, are kept as those details.
+group: identity
+turns:
+  - say: "Margaret Chen"
+    expect:
+      verified: none
+      held_kinds: [name]
+  - say: "4472"
+    expect:
+      verified: none
+      held_kinds: [name, id]
+      wrong_values: 0
+  - say: "margaret@email.com"
+    expect:
+      verified: P9

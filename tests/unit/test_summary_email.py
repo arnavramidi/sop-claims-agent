@@ -5,7 +5,7 @@ from claims_agent.memory import RequestMemory
 from test_answers import CL2011, CL2048, CL2102, G, S, TODAY  # the starter claims and guidance, built once
 
 
-def test_w1_the_summary_covers_discussion_status_and_follow_ups():
+def test_the_summary_covers_discussion_status_and_follow_ups():
     request = RequestMemory(need="denial_question", answered={
         "CL-2048": ["status", "denial_reason", "documents_needed", "appeal_deadline"]})
     subject, body = write_summary([CL2048], request, G, S, TODAY)
@@ -14,13 +14,13 @@ def test_w1_the_summary_covers_discussion_status_and_follow_ups():
     assert "CL-2048" in body and "denied" in body and "pathology report" in body and "2026-03-18" in body
 
 
-def test_p15_two_claims_discussed_are_both_in_the_email():
+def test_two_claims_discussed_are_both_in_the_email():
     _, body = write_summary([CL2048, CL2102], RequestMemory(answered={"CL-2048": ["status"], "CL-2102": ["status"]}),
                             G, S, TODAY)
     assert "CL-2048" in body and "CL-2102" in body
 
 
-def test_v11_the_email_holds_no_personal_details():
+def test_the_email_holds_no_personal_details():
     _, body = write_summary([CL2048], RequestMemory(answered={"CL-2048": ["status"]}), G, S, TODAY)
     for secret in ("Margaret", "1985", "4472", "margaret@email.com", "6505212836", "POL-9921"):
         assert secret not in body

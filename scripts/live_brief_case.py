@@ -86,7 +86,7 @@ async def main() -> int:
                 extractor=TextExtractor(client, s.models.text, **kw),
                 wording=ModelWording(client, s.models.text, s.models.larger, **kw))
     try:
-        await conversation(deps, "the brief's test message", (BRIEF_MSG,))
+        await conversation(deps, "the assignment's test message", (BRIEF_MSG,))
         await conversation(deps, "an upset caller who is not verified, then gives the details", FRUSTRATED)
         await conversation(deps, "an upset caller who takes the person offered", TAKES_A_PERSON)
         await conversation(deps, "a verified caller who is upset about the denial", UPSET_AFTER_VERIFYING)

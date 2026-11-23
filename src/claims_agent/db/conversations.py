@@ -12,6 +12,7 @@ from uuid import UUID, uuid4
 from psycopg import AsyncConnection
 from psycopg.types.json import Jsonb
 
+from claims_agent.db.actions import action
 from claims_agent.memory import Memory
 from claims_agent.states import State
 
@@ -35,7 +36,13 @@ async def _require_bound(conn: AsyncConnection, conversation_id: UUID) -> None:
 
 
 async def create(conn: AsyncConnection, *, consent_script: str = "default", today: date | None = None) -> UUID:
+    """A new conversation. The transaction is bound to it first (the row rules let the server's account write only the
+    conversation its transaction is bound to), so a transaction already bound to another conversation is refused."""
+    row = await (await conn.execute("SELECT current_setting('app.conversation_id', true)")).fetchone()
+    if row[0]:
+        raise LookupError("the transaction is already bound to a conversation")
     cid = uuid4()
+    await conn.execute("SELECT set_config('app.conversation_id', %s, true)", [str(cid)])
     await conn.execute(
         "INSERT INTO conversations (id, state, memory, consent_script, today) VALUES (%s, %s, %s, %s, %s)",
         [cid, State.VERIFY_ID.value, Jsonb(Memory.fresh().model_dump(mode="json")), consent_script, today],
@@ -85,6 +92,7 @@ async def transcript(conn: AsyncConnection, conversation_id: UUID) -> list[dict]
             for n, m, r, s, rec, i in await cur.fetchall()]
 
 
+@action("store hand-over")
 async def add_escalation(conn: AsyncConnection, conversation_id: UUID, turn_no: int, kind: str, reason: str,
                          note: dict) -> None:
     await _require_bound(conn, conversation_id)
@@ -101,14 +109,18 @@ async def set_controls(conn: AsyncConnection, conversation_id: UUID, *, consent_
         "updated_at = now() WHERE id = %s", [consent_script, today, conversation_id])
 
 
-async def set_rating(conn: AsyncConnection, turn_id: int, rating: int, comment: str | None) -> tuple[bool, str | None]:
-    """Store a turn's rating (a second one replaces the first). Returns (the turn exists, its Braintrust span id or
-    None)."""
-    row = await (await conn.execute("SELECT braintrust_span_id FROM turns WHERE id = %s", [turn_id])).fetchone()
+async def set_rating(conn: AsyncConnection, conversation_id: UUID, turn_id: int, rating: int,
+                     comment: str | None) -> tuple[bool, str | None]:
+    """Store the rating of one of this conversation's turns (a second one replaces the first). Returns (the turn is
+    this conversation's, its Braintrust span id or None): a turn of another conversation is not found, like a turn
+    that does not exist."""
+    await _require_bound(conn, conversation_id)
+    row = await (await conn.execute("SELECT braintrust_span_id FROM turns WHERE id = %s AND conversation_id = %s",
+                                    [turn_id, conversation_id])).fetchone()
     if row is None:
         return False, None
     await conn.execute(
-        "INSERT INTO feedback (turn_id, rating, comment) VALUES (%s, %s, %s) "
+        "INSERT INTO feedback (conversation_id, turn_id, rating, comment) VALUES (%s, %s, %s, %s) "
         "ON CONFLICT (turn_id) DO UPDATE SET rating = EXCLUDED.rating, comment = EXCLUDED.comment",
-        [turn_id, str(rating), comment])
+        [conversation_id, turn_id, str(rating), comment])
     return True, row[0]

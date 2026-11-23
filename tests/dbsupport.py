@@ -39,7 +39,7 @@ SESSION_LOCK = "SELECT pg_try_advisory_lock(hashtext('claims_agent tests: one se
 # What a migration leaves, checked once per session right after its first migration and before the session's
 # fingerprint is taken, so a leftover a migration does not undo can never become a session's starting point.
 # Each value comes from the file named; change it here when that file changes.
-EXPECTED_ACCOUNTS = ("claims_owner", "claims_loader", "claims_app")                  # db/001_roles.sql
+EXPECTED_ACCOUNTS = ("claims_owner", "claims_loader", "claims_app", "claims_demo")  # db/001_roles.sql
 EXPECTED_ACCOUNT_ATTRIBUTES = {                                                     # db/001_roles.sql ALTER ROLE
     "rolcanlogin": True, "rolsuper": False, "rolcreatedb": False, "rolcreaterole": False,
     "rolreplication": False, "rolbypassrls": False,
@@ -48,6 +48,10 @@ EXPECTED_MEMBERSHIPS: frozenset[tuple[str, str]] = frozenset()                  
 EXPECTED_ROLE_SETTINGS: frozenset[str] = frozenset()      # none of the accounts', none on the test database
 EXPECTED_SCHEMAS = frozenset({"public"})                  # src/claims_agent/db/migrate.py recreates only public
 EXPECTED_FORCED_ROW_SECURITY = frozenset({"claims", "claim_documents"})              # db/003_security.sql
+EXPECTED_ROW_SECURITY = frozenset({                       # db/003_security.sql, 008, 009, 010_conversation_rows.sql, 012
+    "claims", "claim_documents", "events", "prepared_replies", "conversations", "turns", "escalations", "outbox",
+    "consent_requests", "feedback", "identity_wrong_values",
+})
 EXPECTED_DEFAULT_PRIVILEGES = frozenset({                 # src/claims_agent/db/migrate.py ALTER DEFAULT PRIVILEGES
     "claims_owner * f {claims_owner=X/claims_owner}",
 })
@@ -223,6 +227,7 @@ class TestDb:
     owner_url: str
     loader_url: str
     app_url: str
+    demo_url: str = ""   # the claim-change control's account (claims_demo)
     _app: AppDb | None = field(default=None, repr=False)
 
     @property
@@ -270,6 +275,9 @@ _KNOWN_GOOD_QUERIES = {
     "forced row security": """
         SELECT c.relname FROM pg_class c
         WHERE c.relnamespace = 'public'::regnamespace AND c.relrowsecurity AND c.relforcerowsecurity""",
+    "row security": """
+        SELECT c.relname FROM pg_class c
+        WHERE c.relnamespace = 'public'::regnamespace AND c.relkind = 'r' AND c.relrowsecurity""",
     "default privileges": """
         SELECT concat_ws(' ', pg_get_userbyid(d.defaclrole), coalesce(n.nspname, '*'), d.defaclobjtype,
                          d.defaclacl::text)
@@ -287,6 +295,7 @@ class TestDatabase:
         self.owner_url = os.environ["OWNER_DATABASE_URL"]
         self.loader_url = os.environ["LOADER_DATABASE_URL"]
         self.app_url = os.environ["DATABASE_URL"]
+        self.demo_url = os.environ.get("DEMO_DATABASE_URL", "")
         self._guarded_url = make_conninfo(self.superuser_url, options=f"-c lock_timeout={LOCK_TIMEOUT_MS}")
         self.rebuilds = 0   # how many times a change made by a test forced the schema to be migrated again
         self.last_test: str | None = None   # the test that ran last, named when a leak is found after it
@@ -298,7 +307,7 @@ class TestDatabase:
                 raise SessionBusy("another test session is using the test database; wait for it to finish "
                                   "(two sessions would end each other's connections)")
             self.end_other_sessions()
-            migrate.apply(self._guarded_url)
+            self._migrate()
             problems = self.known_good_problems()
             if problems:
                 raise SchemaLeak("the test database or its accounts are not in the state a migration leaves, and "
@@ -315,9 +324,22 @@ class TestDatabase:
     def close(self) -> None:
         self._conn.close()
 
+    def _migrate(self) -> None:
+        """Migrate. The roles file refuses to run while an account is a member of another role (a migration cannot
+        take a membership back); that refusal is reported as a SchemaLeak naming every problem found."""
+        try:
+            migrate.apply(self._guarded_url)
+        except psycopg.errors.RaiseException:
+            problems = self.known_good_problems()
+            if not problems:
+                raise
+            after = f" (left by {self.last_test})" if self.last_test else ""
+            raise SchemaLeak(f"the database's accounts are not in a state a migration can start from{after}; fix "
+                             "it by hand before running tests:\n  " + "\n  ".join(problems)) from None
+
     def test_db(self) -> TestDb:
         return TestDb(superuser_url=self.superuser_url, owner_url=self.owner_url, loader_url=self.loader_url,
-                      app_url=self.app_url)
+                      app_url=self.app_url, demo_url=self.demo_url)
 
     def fingerprint(self) -> str:
         return self._conn.execute(FINGERPRINT).fetchone()[0]
@@ -344,6 +366,7 @@ class TestDatabase:
             "setting": set(EXPECTED_ROLE_SETTINGS),
             "schema": set(EXPECTED_SCHEMAS),
             "forced row security": set(EXPECTED_FORCED_ROW_SECURITY),
+            "row security": set(EXPECTED_ROW_SECURITY),
             "default privileges": set(EXPECTED_DEFAULT_PRIVILEGES),
         }
         for kind, want in expected_sets.items():
@@ -410,7 +433,7 @@ class TestDatabase:
         """Migrate again, then check the result is the session's own schema and roles."""
         if end_sessions:
             self.end_other_sessions()
-        migrate.apply(self._guarded_url)
+        self._migrate()
         if not self.seeds_rows:
             self.reset_data()   # a table outside the migrated schema would otherwise keep its rows
         self.rebuilds += 1

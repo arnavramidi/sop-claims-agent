@@ -1,0 +1,22 @@
+id: one_money_figure_and_back_to_a_claim
+about: Asking about one money figure gives that figure and its meaning; coming back to a claim already discussed answers the question asked instead of replaying its opening.
+group: processing
+turns:
+  - say: "I'm the policyholder. My name is Margaret Chen, policy POL-9921. I'm calling about my denied healthcare claim from January. DOB is 1985-03-15, SSN last four is 4472."
+    expect:
+      verified: P9
+      focus: [CL-2048]
+  - say: "What's the allowed amount on it?"
+    expect:
+      reply_has: ["1,?450"]
+      reply_lacks: ["net fee", "net pay", "expected reimbursement"]
+      check_passed: true
+  - say: "And what about my auto claim?"
+    expect:
+      focus: [CL-2102]
+  - say: "Back to the denied one: when is the appeal deadline?"
+    expect:
+      focus: [CL-2048]
+      reply_has: ["2026-03-18|March 18"]
+      reply_lacks: ["pathology", "office note"]
+      check_passed: true

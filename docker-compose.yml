@@ -27,6 +27,7 @@ services:
       OWNER_PASSWORD: ${OWNER_PASSWORD}
       LOADER_PASSWORD: ${LOADER_PASSWORD}
       APP_PASSWORD: ${APP_PASSWORD}
+      DEMO_PASSWORD: ${DEMO_PASSWORD:-}
       SETTINGS_FILE: /app/settings.toml
     depends_on:
       db:
@@ -47,7 +48,7 @@ services:
       setup:
         condition: service_completed_successfully
     ports:
-      - "8000:8000"
+      - "127.0.0.1:8000:8000"   # this machine only
 
   tests:
     profiles: ["test"]
@@ -63,9 +64,11 @@ services:
       OWNER_DATABASE_URL: postgresql://claims_owner:${OWNER_PASSWORD}@db:5432/claims_test
       LOADER_DATABASE_URL: postgresql://claims_loader:${LOADER_PASSWORD}@db:5432/claims_test
       DATABASE_URL: postgresql://claims_app:${APP_PASSWORD}@db:5432/claims_test
+      DEMO_DATABASE_URL: postgresql://claims_demo:${DEMO_PASSWORD:-dev_demo_pw}@db:5432/claims_test
       OWNER_PASSWORD: ${OWNER_PASSWORD}
       LOADER_PASSWORD: ${LOADER_PASSWORD}
       APP_PASSWORD: ${APP_PASSWORD}
+      DEMO_PASSWORD: ${DEMO_PASSWORD:-dev_demo_pw}
       OPENAI_API_KEY: ${OPENAI_API_KEY:-}
       BRAINTRUST_API_KEY: ${BRAINTRUST_API_KEY:-}
       SETTINGS_FILE: /app/settings.toml

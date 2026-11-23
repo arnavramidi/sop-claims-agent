@@ -1,0 +1,9 @@
+id: name_in_devanagari
+about: A caller whose name on file is written in Devanagari gives it in that script with two other details and is verified; nothing is counted as wrong.
+group: identity
+dataset: non_latin_names
+turns:
+  - say: "नमस्ते, मेरा नाम राम शर्मा है। मेरी जन्मतिथि 1990-08-21 है और मेरे SSN के आख़िरी चार अंक 9180 हैं।"
+    expect:
+      verified: P7
+      wrong_values: 0

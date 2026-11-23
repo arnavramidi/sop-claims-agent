@@ -11,7 +11,9 @@ turns:
   - say: "The newer one."
     expect:
       focus: [CL-2048]
-  - say: "Thanks. Now, what about my claims from last year?"
+  # One claim meant, two match: the list is shown. ("My claims from last year" means both, and both are then put in
+  # focus with no list, as the claim-choosing rules say for two to five claims when several are meant.)
+  - say: "Thanks. Now, what about my claim from last year?"
     expect:
       instructions: [which_claim]
   - say: "The first one."

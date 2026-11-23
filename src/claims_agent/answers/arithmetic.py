@@ -1,4 +1,4 @@
-"""Arithmetic over the caller's own claims, worded as facts (Ruling 22).
+"""Arithmetic over the caller's own claims, worded as facts.
 
 The database adds up and ranks (`db.claims.aggregate`); this module only turns the result, or the claims' own figures,
 into facts in the canonical forms the reply check reads: amounts with two decimals, day counts as "N days", a count as
@@ -8,7 +8,6 @@ claims it covers and which had no figure on file.
 
 from collections.abc import Sequence
 from datetime import date
-from decimal import Decimal
 
 from claims_agent.db.claims import TOP_SIZE, Aggregate, Claim, aggregate
 from claims_agent.db.guidance import Guidance

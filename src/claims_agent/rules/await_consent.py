@@ -26,11 +26,19 @@ def consent_fact(status: str) -> Fact:
     return Fact("consent", _FACT_TEXT.get(status, _FACT_OTHER))
 
 
+# Why a representative waits: said once, when consent is first asked for.
+WHY_CONSENT = Fact("why_consent", "A policyholder's claim details are private to them, so they are shared with "
+                                  "someone acting for them only with the policyholder's consent.")
+
+
 def _waiting(first: bool, status: str) -> ReplyPart:
+    if first:
+        return ReplyPart(
+            "consent_requested", (consent_fact(status), WHY_CONSENT),
+            "I've asked the policyholder for their consent. Their claim details are private to them, so I can only "
+            "discuss them with you once they agree. Please let me know once they've replied.")
     return ReplyPart(
-        "consent_requested" if first else "consent_pending", (consent_fact(status),),
-        "I've asked the policyholder for their consent. I can't discuss any claims until it comes through."
-        if first else
+        "consent_pending", (consent_fact(status),),
         "The policyholder's consent hasn't come through yet. Please check back with me once they've replied.")
 
 
@@ -38,6 +46,11 @@ async def step(ctx: TurnContext) -> StepOutcome:
     t, limit = ctx.deps.thresholds, ctx.deps.settings.limits.consent_checks
     consent = ctx.memory.section("consent", State.AWAIT_CONSENT)
     fired = [{"rule": "await_consent"}]
+
+    # A caller who is done is told nothing more here: the every-message rules either closed the conversation or
+    # offered an upset caller a person first, and that offer is the whole reply.
+    if confident_yes(ctx.form.done, t):
+        return StepOutcome(State.AWAIT_CONSENT, fired=[{"rule": "await_consent", "caller_done": True}])
 
     role = picked(ctx.form.caller_role, t) if ctx.form.caller_role is not None else None
     if role == "policyholder":  # a representative now says they are the policyholder: a person must look at it

@@ -92,7 +92,7 @@ async def test_a_reset_empties_every_table_and_restarts_identities(test_db, sess
 
 async def test_a_loaded_data_set_is_gone_after_a_reset(load_dataset, session_db):
     db = await load_dataset("starter")
-    assert await db.loader_count("claims") == 5
+    assert await db.loader_count("claims") == 13
     session_db.start_test()
     assert set(session_db.row_counts().values()) == {0}
 
@@ -134,7 +134,7 @@ async def test_a_changed_grant_is_detected_and_restored(test_db, session_db):
 
 async def test_a_changed_function_body_is_detected_and_restored(test_db, session_db):
     await _do(test_db.owner_url,
-              "CREATE OR REPLACE FUNCTION public.name_matches(candidates text[], stored text) RETURNS boolean "
+              "CREATE OR REPLACE FUNCTION public.name_matches(stated text, stored text) RETURNS boolean "
               "LANGUAGE sql SET search_path = pg_catalog, public, pg_temp AS 'SELECT false'")   # stricter
     _rebuilt_by_the_next_reset(session_db)
     (body,) = await _one(test_db.superuser_url, "SELECT prosrc FROM pg_proc WHERE proname = 'name_matches'")

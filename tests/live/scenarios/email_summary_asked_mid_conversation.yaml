@@ -1,0 +1,21 @@
+id: email_summary_asked_mid_conversation
+about: '"Can you email me a summary of this?" mid-conversation is acknowledged, and the summary is sent at the end without asking again.'
+group: wrapup
+turns:
+  - say: "I'm the policyholder. My name is Margaret Chen, policy POL-9921. I'm calling about my denied healthcare claim from January. DOB is 1985-03-15, SSN last four is 4472."
+    expect:
+      verified: P9
+      focus: [CL-2048]
+  - say: "Can you email me a summary of this?"
+    expect:
+      state: PROCESS_CASE
+      instructions: [email_at_wrap_up]
+      instructions_lack: [not_on_file, offer_person]
+      outbox_count: 0
+      check_passed: true
+  - say: "That's all, thanks."
+    expect:
+      state: DONE
+      instructions: [email_sent]
+      instructions_lack: [offer_email]
+      outbox_count: 1

@@ -184,3 +184,11 @@ class RateLimiter:
             return False
         times.append(now)
         return True
+
+
+def lists_sample_callers(settings: Settings, environ: Mapping[str, str]) -> bool:
+    """Whether a hosted server may list the sample callers: only while it serves the bundled sample data, and never
+    when the override that lets it serve other data is on (then the data is not known to be the sample)."""
+    if (environ.get(ALLOW_OTHER_DATA) or "").strip() == "1":
+        return False
+    return (ROOT / settings.data.folder).resolve() == SAMPLE_DATA.resolve()

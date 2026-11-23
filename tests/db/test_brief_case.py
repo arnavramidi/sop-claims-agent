@@ -9,7 +9,7 @@ from helpers import BRIEF_MSG, BRIEF_SAID, GAVE, assert_no_claim_data, facts, fo
 from claims_agent.form.fields import Pick
 from claims_agent.states import State
 
-# The brief's message as the fast model should read it, with the need read as a denial question.
+# The assignment's message as the fast model should read it, with the need read as a denial question.
 FORM = make_form(**GAVE, need=Pick(value="denial_question", p=0.7), how_many="one",
                  claim_types={"healthcare": 0.97}, claim_statuses={"denied": 0.96}, months={1: 0.95}, no_year_said=True)
 
